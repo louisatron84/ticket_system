@@ -1,0 +1,24 @@
+# Alternative to `npm run db:start` for machines with Docker.
+# Same credentials and host port as .env.example, so DATABASE_URL does not change.
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forge
+      POSTGRES_DB: forge
+    ports:
+      - '54329:5432'
+    volumes:
+      # Postgres 18+ images keep versioned data directories under /var/lib/postgresql.
+      - forge-db:/var/lib/postgresql
+      - ./scripts/docker-init-test-db.sql:/docker-entrypoint-initdb.d/10-test-db.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U forge -d forge']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  forge-db:

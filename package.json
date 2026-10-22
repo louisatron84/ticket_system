@@ -1,0 +1,45 @@
+{
+  "name": "forge",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Forge: tickets, GitHub collaboration and deterministic workflow automation",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.9"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev -w @forge/api",
+    "dev:web": "npm run dev -w @forge/web",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tests/e2e/tsconfig.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test",
+    "db:start": "node scripts/dev-db.mjs start",
+    "db:stop": "node scripts/dev-db.mjs stop",
+    "db:reset": "node scripts/dev-db.mjs reset",
+    "db:generate": "npm run generate -w @forge/db",
+    "db:migrate": "npm run migrate -w @forge/db"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.5",
+    "concurrently": "^10.0.6",
+    "embedded-postgres": "^18.4.0-beta.17",
+    "eslint": "^10.13.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
+  }
+}

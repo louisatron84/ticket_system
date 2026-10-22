@@ -1,0 +1,21 @@
+node_modules/
+.next/
+dist/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# Local configuration and disposable development data
+.env
+.env.*.local
+.data/
+
+# Agent scratch space
+.superpowers/
+
+# Playwright output
+test-results/
+playwright-report/
+
+# Written by `next dev` (instructions aimed at AI agents); not part of Forge
+apps/web/AGENTS.md

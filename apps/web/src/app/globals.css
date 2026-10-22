@@ -1,0 +1,89 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens. Graphite surfaces with a faint steel-blue cast; one accent, heated-metal
+ * amber, reserved for "where you are" (active navigation, keyboard focus). Status is never
+ * colour alone: every state also carries an icon and a word.
+ * Light theme later: override these variables under [data-theme='light'].
+ */
+:root {
+  color-scheme: dark;
+  --bg: #0f1216;
+  --panel: #151a20;
+  --raised: #1b2128;
+  --edge: #262d36;
+  --edge-strong: #36404c;
+  --text: #e8eaed;
+  --muted: #8e96a3;
+  --ember: #e2a03f;
+  --ok: #5dc38e;
+  --fail: #f26d74;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-raised: var(--raised);
+  --color-edge: var(--edge);
+  --color-edge-strong: var(--edge-strong);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-ember: var(--ember);
+  --color-ok: var(--ok);
+  --color-fail: var(--fail);
+  --font-sans: 'Instrument Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'Cascadia Mono', monospace;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 100;
+  padding: 6px 10px;
+  background: var(--raised);
+  border: 1px solid var(--edge-strong);
+  border-radius: 6px;
+}
+.skip-link:focus {
+  top: 8px;
+}
+
+.skeleton {
+  background: var(--raised);
+  border-radius: 4px;
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

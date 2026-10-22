@@ -1,0 +1,12 @@
+node_modules
+.next
+.data
+.superpowers
+dist
+coverage
+package-lock.json
+next-env.d.ts
+docs/superpowers
+packages/db/migrations
+test-results
+playwright-report
