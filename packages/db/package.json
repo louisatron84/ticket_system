@@ -12,11 +12,14 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "generate": "drizzle-kit generate",
-    "migrate": "tsx src/migrate.ts"
+    "migrate": "tsx src/migrate.ts",
+    "seed": "tsx src/seed-cli.ts seed",
+    "reseed": "tsx src/seed-cli.ts reseed"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "@forge/shared": "*"
   },
   "devDependencies": {
     "@types/pg": "^8.23.1",

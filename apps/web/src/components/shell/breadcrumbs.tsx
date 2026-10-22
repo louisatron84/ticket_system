@@ -10,9 +10,13 @@ export function Breadcrumbs({ items }: { items: Breadcrumb[] }) {
         {items.map((item, index) => {
           const last = index === items.length - 1;
           return (
-            <li key={item.label} className="flex min-w-0 items-center gap-1.5">
+            // On a phone only the current page is shown; the parent crumbs return from `sm` up.
+            <li
+              key={item.label}
+              className={`${last ? 'flex' : 'hidden sm:flex'} min-w-0 items-center gap-1.5`}
+            >
               {index > 0 && (
-                <span aria-hidden="true" className="text-edge-strong">
+                <span aria-hidden="true" className="hidden text-edge-strong sm:inline">
                   /
                 </span>
               )}

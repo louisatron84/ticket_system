@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp } from './app';
-import { testConfig } from './test-utils';
+import { testConfig, testDb } from './test-utils';
 
 describe('buildApp', () => {
   it('uses no deprecated Fastify options', async () => {
@@ -11,7 +11,7 @@ describe('buildApp', () => {
 
     process.on('warning', onWarning);
     try {
-      await buildApp({ config: testConfig(), readinessChecks: [] });
+      await buildApp({ config: testConfig(), readinessChecks: [], db: testDb() });
       // process.emitWarning delivers on a later tick.
       await new Promise((resolve) => setTimeout(resolve, 20));
     } finally {

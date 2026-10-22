@@ -2,10 +2,10 @@ import { apiErrorSchema } from '@forge/shared';
 import { describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 import { AppError } from './errors';
-import { testConfig } from './test-utils';
+import { testConfig, testDb } from './test-utils';
 
 async function appWithRoutes() {
-  const app = await buildApp({ config: testConfig(), readinessChecks: [] });
+  const app = await buildApp({ config: testConfig(), readinessChecks: [], db: testDb() });
   app.get('/boom', async () => {
     throw new Error('SELECT secret FROM users WHERE password = hunter2');
   });

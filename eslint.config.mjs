@@ -8,6 +8,7 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/.next/**',
+      '**/.next-e2e/**',
       '**/dist/**',
       '**/coverage/**',
       '**/next-env.d.ts',
@@ -24,7 +25,10 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node } },
     rules: {
       '@typescript-eslint/consistent-type-imports': 'error',
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', ignoreRestSiblings: true },
+      ],
     },
   },
   {

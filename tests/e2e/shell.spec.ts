@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated, reseed, signInAs, switchTo } from './helpers';
 
 // These tests drive the running stack (database, API and web); see docs/testing.md.
 
@@ -7,10 +8,14 @@ async function screenshot(page: Page, name: string) {
   if (dir) await page.screenshot({ path: `${dir}/${name}.png` });
 }
 
-test.describe('Overview', () => {
+test.beforeEach(async ({ page, request }) => {
+  await reseed(request);
+  await signInAs(page, 'owner');
+});
+
+test.describe('Workspace overview', () => {
   test('shows live system status from the API', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Overview', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Acme Robotics', level: 1 })).toBeVisible();
     await expect(page.getByRole('status').filter({ hasText: 'All systems running' })).toBeVisible();
 
     const table = page.getByRole('table', { name: 'Status of each Forge component' });
@@ -23,13 +28,12 @@ test.describe('Overview', () => {
   });
 
   test('re-checks on demand and confirms with a toast', async ({ page }) => {
-    await page.goto('/');
+    await hydrated(page);
     await page.getByRole('button', { name: 'Check again' }).click();
     await expect(page.getByText('Status checked')).toBeVisible();
   });
 
-  test('marks the current page in the navigation', async ({ page }) => {
-    await page.goto('/');
+  test('marks the current page in the navigation and breadcrumbs', async ({ page }) => {
     await expect(
       page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Overview' }),
     ).toHaveAttribute('aria-current', 'page');
@@ -38,56 +42,73 @@ test.describe('Overview', () => {
     ).toHaveAttribute('aria-current', 'page');
   });
 
-  test('offers only routes that exist', async ({ page }) => {
-    await page.goto('/');
+  test('offers only pages that exist, and only those the role may see', async ({ page }) => {
     const links = page.getByRole('navigation', { name: 'Primary' }).getByRole('link');
-    await expect(links).toHaveCount(1);
+    await expect(links).toHaveText(['Overview', 'Members']);
   });
 });
 
 test.describe('Sidebar', () => {
-  test('collapses and remembers the choice after a reload', async ({ page }) => {
-    await page.goto('/');
-    const collapse = page.getByRole('button', { name: 'Collapse sidebar' });
-    await expect(collapse).toHaveAttribute('aria-expanded', 'true');
-    await collapse.click();
+  const collapse = (page: Page) => page.getByRole('button', { name: 'Collapse sidebar' });
+  const expand = (page: Page) => page.getByRole('button', { name: 'Expand sidebar' });
 
-    const expand = page.getByRole('button', { name: 'Expand sidebar' });
-    await expect(expand).toHaveAttribute('aria-expanded', 'false');
+  async function collapseAndWaitForSave(page: Page) {
+    await hydrated(page);
+    await expect(collapse(page)).toHaveAttribute('aria-expanded', 'true');
+    await collapse(page).click();
+    await expect(expand(page)).toHaveAttribute('aria-expanded', 'false');
+    await expect
+      .poll(
+        async () =>
+          (await (await page.request.get('/api/v1/me/preferences')).json()).sidebarCollapsed,
+      )
+      .toBe(true);
+  }
+
+  test('collapses and remembers the choice after a reload', async ({ page }) => {
+    await collapseAndWaitForSave(page);
     await screenshot(page, 'overview-collapsed');
 
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Expand sidebar' })).toBeVisible();
-    expect(await page.evaluate(() => localStorage.getItem('forge.sidebar.collapsed'))).toBe('true');
+    await expect(expand(page)).toBeVisible();
   });
 
-  test('ignores a corrupt stored preference', async ({ page }) => {
-    const errors: Error[] = [];
-    page.on('pageerror', (error) => errors.push(error));
-    await page.addInitScript(() => localStorage.setItem('forge.sidebar.collapsed', '{'));
-    await page.goto('/');
-    await expect(page.getByRole('button', { name: 'Collapse sidebar' })).toBeVisible();
-    expect(errors).toEqual([]);
+  test('is rendered collapsed on the very first paint, with no flash of the wide sidebar', async ({
+    page,
+  }) => {
+    await collapseAndWaitForSave(page);
+    const html = await (await page.request.get('/w/acme')).text();
+    expect(html).toContain('md:w-14');
+    expect(html).not.toContain('md:w-58');
   });
 
-  test('keeps working when browser storage is blocked', async ({ page }) => {
-    const errors: Error[] = [];
-    page.on('pageerror', (error) => errors.push(error));
-    await page.addInitScript(() => {
-      const blocked = () => {
-        throw new DOMException('blocked', 'SecurityError');
-      };
-      Storage.prototype.getItem = blocked;
-      Storage.prototype.setItem = blocked;
+  test('is kept on the server, so clearing browser storage changes nothing', async ({ page }) => {
+    await collapseAndWaitForSave(page);
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
     });
-    await page.goto('/');
-    await page.getByRole('button', { name: 'Collapse sidebar' }).click();
-    await expect(page.getByRole('button', { name: 'Expand sidebar' })).toBeVisible();
-    expect(errors).toEqual([]);
+    await page.reload();
+    await expect(expand(page)).toBeVisible();
+  });
+
+  test('belongs to one person: another identity still sees it expanded', async ({ page }) => {
+    await collapseAndWaitForSave(page);
+    await switchTo(page, 'admin');
+    await expect(collapse(page)).toBeVisible();
+  });
+
+  test('can also be changed from the profile page, and the two stay in step', async ({ page }) => {
+    await page.goto('/settings/profile');
+    await hydrated(page);
+    await page.getByRole('switch', { name: /Collapse the sidebar/ }).check();
+    await expect(expand(page)).toBeVisible();
+    await page.getByRole('button', { name: 'Expand sidebar' }).click();
+    await expect(page.getByRole('switch', { name: /Collapse the sidebar/ })).not.toBeChecked();
   });
 
   test('is reachable by keyboard from a skip link', async ({ page }) => {
-    await page.goto('/');
+    await page.reload();
     await page.keyboard.press('Tab');
     await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused();
   });
@@ -97,14 +118,13 @@ test.describe('Phone width', () => {
   test.use({ viewport: { width: 375, height: 800 } });
 
   test('has no horizontal page scroll and tucks the navigation into a drawer', async ({ page }) => {
-    await page.goto('/');
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(0);
 
     // Wait out the slide transition: fully on screen when open, fully off screen when closed.
-    const overviewLink = page.getByRole('link', { name: 'Overview' });
+    const overviewLink = page.getByRole('link', { name: 'Overview', exact: true });
     const right = async () => {
       const box = await overviewLink.boundingBox();
       return box ? box.x + box.width : Number.NaN;
@@ -113,6 +133,7 @@ test.describe('Phone width', () => {
 
     await expect.poll(right).toBeLessThanOrEqual(0);
 
+    await hydrated(page);
     await page.getByRole('button', { name: 'Open navigation' }).click();
     await expect.poll(left).toBeGreaterThanOrEqual(0);
     await screenshot(page, 'overview-mobile-drawer');
@@ -120,6 +141,15 @@ test.describe('Phone width', () => {
     await page.keyboard.press('Escape');
     await expect.poll(right).toBeLessThanOrEqual(0);
     await screenshot(page, 'overview-mobile');
+  });
+
+  test('keeps the members table readable without sideways page scroll', async ({ page }) => {
+    await page.goto('/w/acme/members');
+    await expect(page.getByRole('heading', { name: 'Members', level: 1 })).toBeVisible();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(0);
   });
 });
 
@@ -129,6 +159,6 @@ test.describe('Unknown routes', () => {
     expect(response?.status()).toBe(404);
     await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
     await page.getByRole('link', { name: 'Go to Overview' }).click();
-    await expect(page.getByRole('heading', { name: 'Overview', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Acme Robotics', level: 1 })).toBeVisible();
   });
 });

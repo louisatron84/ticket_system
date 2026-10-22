@@ -1,16 +1,24 @@
+import type { Db } from '@forge/db';
 import { REQUEST_ID_HEADER } from '@forge/shared';
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
+import { registerAuth } from './auth/plugin';
 import type { AppConfig } from './config';
 import { registerErrorHandling } from './errors';
 import type { ReadinessCheck } from './readiness';
 import { resolveRequestId } from './request-id';
+import { registerAuthRoutes } from './routes/auth';
+import { registerDevRoutes } from './routes/dev';
 import { registerHealthRoutes } from './routes/health';
+import { registerMeRoutes } from './routes/me';
+import { registerOrgRoutes } from './routes/orgs';
+import { registerPreferencesRoutes } from './routes/preferences';
 
 export type { ReadinessCheck } from './readiness';
 
 export type AppDeps = {
   config: AppConfig;
   readinessChecks: ReadinessCheck[];
+  db: Db;
   /** Per-check deadline for /health/ready; defaults to 2000 ms. */
   readinessTimeoutMs?: number;
 };
@@ -20,6 +28,11 @@ const BODY_LIMIT_BYTES = 1_048_576;
 /** Builds the app without starting it, so tests can add routes before the first request. */
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const { config } = deps;
+
+  // Belt and braces: loadConfig already refuses this, but nothing else may build such an app.
+  if (config.devAuth && config.nodeEnv === 'production') {
+    throw new Error('FORGE_DEV_AUTH must not be enabled when NODE_ENV=production');
+  }
 
   const app = Fastify({
     logger: {
@@ -46,6 +59,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   registerErrorHandling(app);
+  await registerAuth(app, { config, db: deps.db });
+  registerMeRoutes(app, { db: deps.db });
+  registerAuthRoutes(app, { db: deps.db });
+  registerOrgRoutes(app, { db: deps.db });
+  registerPreferencesRoutes(app, { db: deps.db });
+  if (config.devAuth) registerDevRoutes(app, { db: deps.db, config });
   registerHealthRoutes(app, {
     checks: deps.readinessChecks,
     version: config.version,

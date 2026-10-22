@@ -22,7 +22,7 @@ const execFileAsync = promisify(execFile);
 const PORT = 54329;
 const USER = 'forge';
 const PASSWORD = 'forge';
-const DATABASES = ['forge', 'forge_test'];
+const DATABASES = ['forge', 'forge_test', 'forge_e2e'];
 const DATA_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',

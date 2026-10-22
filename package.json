@@ -25,7 +25,9 @@
     "db:stop": "node scripts/dev-db.mjs stop",
     "db:reset": "node scripts/dev-db.mjs reset",
     "db:generate": "npm run generate -w @forge/db",
-    "db:migrate": "npm run migrate -w @forge/db"
+    "db:migrate": "npm run migrate -w @forge/db",
+    "db:seed": "npm run seed -w @forge/db",
+    "db:reseed": "npm run reseed -w @forge/db"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

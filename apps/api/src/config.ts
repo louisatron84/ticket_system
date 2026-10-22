@@ -10,6 +10,11 @@ export type AppConfig = {
   databaseUrl: string;
   logLevel: (typeof LOG_LEVELS)[number];
   version: string;
+  /** Development-only sign-in and account switcher. Can never be on in production. */
+  devAuth: boolean;
+  /** Origins allowed to make state-changing requests with a session cookie. */
+  webOrigins: string[];
+  sessionTtlHours: number;
 };
 
 /** Thrown for invalid environment variables. The message names variables, never their values. */
@@ -29,6 +34,16 @@ function isPostgresUrl(value: string): boolean {
   }
 }
 
+/** A bare origin such as http://localhost:3000: no path, no trailing slash. */
+function isOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.origin === value;
+  } catch {
+    return false;
+  }
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_HOST: z.string().default('127.0.0.1'),
@@ -36,6 +51,16 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(LOG_LEVELS).optional(),
   DATABASE_URL: z.string().refine(isPostgresUrl),
   APP_VERSION: z.string().optional(),
+  FORGE_DEV_AUTH: z
+    .enum(['1', 'true', '0', 'false'])
+    .default('0')
+    .transform((value) => value === '1' || value === 'true'),
+  WEB_ORIGIN: z
+    .string()
+    .default('http://localhost:3000,http://127.0.0.1:3000')
+    .transform((value) => value.split(',').map((origin) => origin.trim()))
+    .refine((origins) => origins.length > 0 && origins.every(isOrigin)),
+  SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(168),
 });
 
 // Fixed text per variable: zod's own messages can include the offending value.
@@ -46,6 +71,9 @@ const PROBLEMS: Record<string, string> = {
   LOG_LEVEL: `must be one of ${LOG_LEVELS.join(', ')}`,
   DATABASE_URL: 'is required and must be a postgres:// or postgresql:// URL',
   APP_VERSION: 'must be a string',
+  FORGE_DEV_AUTH: 'must be 1, true, 0 or false',
+  WEB_ORIGIN: 'must be a comma-separated list of http(s) origins without paths',
+  SESSION_TTL_HOURS: 'must be an integer between 1 and 720',
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
@@ -60,6 +88,14 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   }
 
   const values = parsed.data;
+
+  // The account switcher lets anyone become any seeded user, so it must never reach production.
+  if (values.NODE_ENV === 'production' && values.FORGE_DEV_AUTH) {
+    throw new ConfigError(
+      'Invalid configuration: FORGE_DEV_AUTH must not be enabled when NODE_ENV=production',
+    );
+  }
+
   return {
     nodeEnv: values.NODE_ENV,
     host: values.API_HOST,
@@ -67,5 +103,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     databaseUrl: values.DATABASE_URL,
     logLevel: values.LOG_LEVEL ?? (values.NODE_ENV === 'test' ? 'silent' : 'info'),
     version: values.APP_VERSION ?? pkg.version,
+    devAuth: values.FORGE_DEV_AUTH,
+    webOrigins: values.WEB_ORIGIN,
+    sessionTtlHours: values.SESSION_TTL_HOURS,
   };
 }
