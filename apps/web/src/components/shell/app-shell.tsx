@@ -1,14 +1,45 @@
 'use client';
 
+import type { DevIdentity, Viewer } from '@forge/shared';
+import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Toaster } from 'sonner';
-import { useSidebarCollapsed } from '@/lib/use-sidebar-collapsed';
+import { currentWorkspace } from '@/lib/workspaces';
 import { Sidebar } from './sidebar';
+import { SidebarPreferenceProvider, useSidebarPreference } from './sidebar-preference';
 import { Topbar } from './topbar';
 
-export function AppShell({ children }: { children: ReactNode }) {
-  const [collapsed, setCollapsed] = useSidebarCollapsed();
+export function AppShell({
+  viewer,
+  devIdentities,
+  children,
+}: {
+  viewer: Viewer;
+  devIdentities: DevIdentity[] | null;
+  children: ReactNode;
+}) {
+  return (
+    <SidebarPreferenceProvider initial={viewer.preferences.sidebarCollapsed ?? false}>
+      <ShellFrame viewer={viewer} devIdentities={devIdentities}>
+        {children}
+      </ShellFrame>
+    </SidebarPreferenceProvider>
+  );
+}
+
+function ShellFrame({
+  viewer,
+  devIdentities,
+  children,
+}: {
+  viewer: Viewer;
+  devIdentities: DevIdentity[] | null;
+  children: ReactNode;
+}) {
+  const { collapsed, setCollapsed } = useSidebarPreference();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname();
+  const workspace = currentWorkspace(viewer.memberships, pathname);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -26,6 +57,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       </a>
 
       <Sidebar
+        workspace={workspace}
+        memberships={viewer.memberships}
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed(!collapsed)}
         mobileOpen={mobileOpen}
@@ -40,7 +73,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onOpenMenu={() => setMobileOpen(true)} />
+        <Topbar
+          viewer={viewer}
+          workspace={workspace}
+          devIdentities={devIdentities}
+          onOpenMenu={() => setMobileOpen(true)}
+        />
         <main id="main" tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
           <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-8 md:py-8">{children}</div>
         </main>
@@ -48,7 +86,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <Toaster
         theme="dark"
-        position="bottom-right"
+        position="bottom-center"
         toastOptions={{
           style: {
             background: 'var(--raised)',

@@ -1,4 +1,4 @@
-import { createPool, loadDotEnv } from '@forge/db';
+import { createDb, createPool, loadDotEnv } from '@forge/db';
 import { buildApp } from './app';
 import { databaseCheck, migrationsCheck } from './checks';
 import { ConfigError, loadConfig } from './config';
@@ -24,7 +24,15 @@ const pool = createPool(config.databaseUrl, (error) =>
 const app = await buildApp({
   config,
   readinessChecks: [databaseCheck(pool), migrationsCheck(pool)],
+  db: createDb(pool),
 });
+
+if (config.devAuth) {
+  app.log.warn(
+    'FORGE_DEV_AUTH is on: anyone who can reach this API can sign in as any seeded test user. ' +
+      'Development only; the API refuses to start with this in production.',
+  );
+}
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {

@@ -1,23 +1,43 @@
 'use client';
 
+import type { Membership } from '@forge/shared';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { visibleNavItems } from '@/lib/nav';
 import { BrandMark } from './brand-mark';
+import { WorkspaceSwitcher } from './workspace-switcher';
 
 type SidebarProps = {
+  workspace: Membership | null;
+  memberships: Membership[];
   collapsed: boolean;
   onToggleCollapsed: () => void;
   mobileOpen: boolean;
   onNavigate: () => void;
 };
 
-const isActive = (pathname: string, href: string) =>
-  href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
-
-export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onNavigate }: SidebarProps) {
+export function Sidebar({
+  workspace,
+  memberships,
+  collapsed,
+  onToggleCollapsed,
+  mobileOpen,
+  onNavigate,
+}: SidebarProps) {
   const pathname = usePathname();
+  const items = workspace
+    ? visibleNavItems({
+        slug: workspace.organisation.slug,
+        permissions: workspace.permissions,
+      })
+    : [];
+
+  // The most specific matching link is the current one, so Overview is not also lit up on /members.
+  const activeHref = items
+    .filter((item) => pathname === item.href || pathname.startsWith(`${item.href}/`))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
+
   // The icon rail only exists on desktop; the mobile drawer always shows labels.
   const hideLabel = collapsed ? 'md:sr-only' : '';
 
@@ -36,10 +56,20 @@ export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onNavigate }
         <span className={`text-[15px] font-semibold tracking-tight ${hideLabel}`}>Forge</span>
       </div>
 
+      {workspace && (
+        <div className={`shrink-0 border-b border-edge p-2 ${collapsed ? 'md:hidden' : ''}`}>
+          <WorkspaceSwitcher
+            current={workspace}
+            memberships={memberships}
+            onNavigate={onNavigate}
+          />
+        </div>
+      )}
+
       <nav aria-label="Primary" className="flex-1 overflow-y-auto p-2">
         <ul className="flex flex-col gap-0.5">
-          {visibleNavItems().map((item) => {
-            const active = isActive(pathname, item.href);
+          {items.map((item) => {
+            const active = item.href === activeHref;
             return (
               <li key={item.id}>
                 <Link

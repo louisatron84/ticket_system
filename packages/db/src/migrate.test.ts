@@ -1,6 +1,12 @@
 import type { Pool } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createPool, loadDotEnv, migrationStatus, runMigrations } from './index';
+import {
+  createPool,
+  loadDotEnv,
+  migrationStatus,
+  resetDatabaseForTests,
+  runMigrations,
+} from './index';
 
 let pool: Pool;
 
@@ -16,8 +22,7 @@ beforeAll(() => {
 });
 
 beforeEach(async () => {
-  await pool.query('DROP SCHEMA IF EXISTS drizzle CASCADE');
-  await pool.query('DROP TABLE IF EXISTS system_metadata');
+  await resetDatabaseForTests(pool);
 });
 
 afterAll(async () => {
@@ -25,19 +30,23 @@ afterAll(async () => {
 });
 
 describe('migrations', () => {
-  it('reports one expected and zero applied migrations on an empty database', async () => {
-    expect(await migrationStatus(pool)).toEqual({ expected: 1, applied: 0 });
+  it('reports every shipped migration as pending on an empty database', async () => {
+    const { expected, applied } = await migrationStatus(pool);
+    expect(expected).toBeGreaterThan(0);
+    expect(applied).toBe(0);
   });
 
-  it('applies the initial migration', async () => {
+  it('applies every migration', async () => {
     await runMigrations(pool);
-    expect(await migrationStatus(pool)).toEqual({ expected: 1, applied: 1 });
+    const { expected, applied } = await migrationStatus(pool);
+    expect(applied).toBe(expected);
   });
 
   it('is idempotent when run twice', async () => {
     await runMigrations(pool);
+    const first = await migrationStatus(pool);
     await runMigrations(pool);
-    expect(await migrationStatus(pool)).toEqual({ expected: 1, applied: 1 });
+    expect(await migrationStatus(pool)).toEqual(first);
   });
 
   it('creates system_metadata that accepts rows and rejects a null value', async () => {

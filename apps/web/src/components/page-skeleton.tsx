@@ -1,4 +1,5 @@
-export default function Loading() {
+/** Placeholder shown while a page loads. Used by the loading.tsx files under (app). */
+export function PageSkeleton() {
   return (
     <div className="flex flex-col gap-8" aria-busy="true" aria-label="Loading">
       <div className="skeleton h-7 w-32" />

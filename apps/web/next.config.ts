@@ -9,12 +9,36 @@ const repoRoot = path.resolve(import.meta.dirname, '../..');
 // own folder by now, so the reload must be forced. Variables already in the environment still win.
 loadEnvConfig(repoRoot, process.env.NODE_ENV !== 'production', console, true);
 
+const apiOrigin = () => process.env.API_INTERNAL_URL ?? 'http://127.0.0.1:4000';
+
+// Matches the hostname only (Next strips the port before comparing).
+const LOOPBACK_HOSTNAME = '(localhost|127\\.0\\.0\\.1|\\[::1\\])';
+
 const config: NextConfig = {
   // Internal packages ship as TypeScript source.
   transpilePackages: ['@forge/shared'],
   // This is an npm-workspaces monorepo: tell Turbopack where the real root is.
   turbopack: { root: repoRoot },
   poweredByHeader: false,
+  // The dev badge defaults to bottom-left, where it covers the sidebar's collapse button.
+  devIndicators: { position: 'bottom-right' },
+  // End-to-end tests build into their own folder so they can run beside a normal dev server.
+  distDir: process.env.NEXT_DIST_DIR ?? '.next',
+
+  // The browser talks to the API only through this same-origin proxy, so the session cookie is
+  // first-party and never needs CORS. Server components call the API directly instead.
+  async rewrites() {
+    return [
+      // The development account switcher is proxied only when the browser reached this server by
+      // a loopback name. Anything else (for example a DNS-rebinding page) gets a plain 404.
+      {
+        source: '/api/dev/:path*',
+        has: [{ type: 'host', value: LOOPBACK_HOSTNAME }],
+        destination: `${apiOrigin()}/api/dev/:path*`,
+      },
+      { source: '/api/v1/:path*', destination: `${apiOrigin()}/api/v1/:path*` },
+    ];
+  },
 };
 
 export default config;

@@ -3,7 +3,6 @@ import '@fontsource-variable/jetbrains-mono';
 import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
-import { AppShell } from '@/components/shell/app-shell';
 
 export const metadata: Metadata = {
   title: { default: 'Forge', template: '%s | Forge' },
@@ -12,12 +11,12 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { themeColor: '#0f1216', colorScheme: 'dark' };
 
+// Only the document itself lives here. The application shell belongs to the signed-in area
+// (see (app)/layout.tsx), so the sign-in page and the error pages render without it.
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>
-        <AppShell>{children}</AppShell>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

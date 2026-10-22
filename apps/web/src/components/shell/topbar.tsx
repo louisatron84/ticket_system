@@ -1,11 +1,23 @@
 'use client';
 
+import type { DevIdentity, Membership, Viewer } from '@forge/shared';
 import { Menu } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { breadcrumbsFor } from '@/lib/nav';
+import { AccountMenu } from './account-menu';
 import { Breadcrumbs } from './breadcrumbs';
 
-export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
+export function Topbar({
+  viewer,
+  workspace,
+  devIdentities,
+  onOpenMenu,
+}: {
+  viewer: Viewer;
+  workspace: Membership | null;
+  devIdentities: DevIdentity[] | null;
+  onOpenMenu: () => void;
+}) {
   const pathname = usePathname();
   const development = process.env.NODE_ENV !== 'production';
 
@@ -21,7 +33,14 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
         <Menu size={18} aria-hidden="true" />
       </button>
 
-      <Breadcrumbs items={breadcrumbsFor(pathname)} />
+      <Breadcrumbs
+        items={breadcrumbsFor(
+          pathname,
+          workspace
+            ? { slug: workspace.organisation.slug, name: workspace.organisation.name }
+            : undefined,
+        )}
+      />
 
       <div className="ml-auto flex items-center gap-3">
         {development && (
@@ -32,6 +51,7 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
             development
           </span>
         )}
+        <AccountMenu viewer={viewer} workspace={workspace} devIdentities={devIdentities} />
       </div>
     </header>
   );

@@ -1,18 +1,17 @@
-import type { Metadata } from 'next';
-import { SystemStatus } from '@/components/status/system-status';
-import { fetchReadiness } from '@/lib/api';
+import { redirect } from 'next/navigation';
+import { workspaceHref } from '@/lib/nav';
+import { getViewer } from '@/lib/server/session';
+import { pickDefaultWorkspace } from '@/lib/workspaces';
 
-export const metadata: Metadata = { title: 'Overview' };
-// The status must be measured on every request, never baked in at build time.
 export const dynamic = 'force-dynamic';
 
-export default async function OverviewPage() {
-  const result = await fetchReadiness(process.env.API_INTERNAL_URL ?? 'http://127.0.0.1:4000');
+// "/" has no content of its own: it is a plain HTTP redirect to wherever the person belongs.
+// It lives outside the signed-in layout on purpose, so the redirect happens before anything has
+// been sent to the browser (inside that layout it would arrive late, as a client-side hop).
+export default async function HomePage() {
+  const viewer = await getViewer();
+  if (!viewer) redirect('/login');
 
-  return (
-    <div className="flex flex-col gap-8">
-      <h1 className="text-xl font-semibold tracking-tight">Overview</h1>
-      <SystemStatus result={result} checkedAt={new Date()} />
-    </div>
-  );
+  const target = pickDefaultWorkspace(viewer.memberships);
+  redirect(target ? workspaceHref(target.organisation.slug) : '/no-workspace');
 }

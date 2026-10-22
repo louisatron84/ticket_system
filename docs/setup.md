@@ -17,16 +17,21 @@ cp .env.example .env            # PowerShell: Copy-Item .env.example .env
 
 `.env` is git-ignored. The defaults work as-is. Variables:
 
-| Variable            | Default                                             | Used by                  |
-| ------------------- | --------------------------------------------------- | ------------------------ |
-| `DATABASE_URL`      | `postgres://forge:forge@localhost:54329/forge`      | API, `db:migrate`        |
-| `TEST_DATABASE_URL` | `postgres://forge:forge@localhost:54329/forge_test` | integration tests        |
-| `API_HOST`          | `127.0.0.1`                                         | API                      |
-| `API_PORT`          | `4000`                                              | API                      |
-| `LOG_LEVEL`         | `info`                                              | API                      |
-| `API_INTERNAL_URL`  | `http://127.0.0.1:4000`                             | web server, to reach API |
+| Variable            | Default                                             | Used by                                  |
+| ------------------- | --------------------------------------------------- | ---------------------------------------- |
+| `DATABASE_URL`      | `postgres://forge:forge@localhost:54329/forge`      | API, `db:migrate`, `db:seed`             |
+| `TEST_DATABASE_URL` | `postgres://forge:forge@localhost:54329/forge_test` | integration tests (they wipe it)         |
+| `E2E_DATABASE_URL`  | `postgres://forge:forge@localhost:54329/forge_e2e`  | browser tests (they wipe it)             |
+| `API_HOST`          | `127.0.0.1`                                         | API                                      |
+| `API_PORT`          | `4000`                                              | API                                      |
+| `LOG_LEVEL`         | `info`                                              | API                                      |
+| `FORGE_DEV_AUTH`    | `1` in `.env.example`, off if unset                 | API: development account switcher        |
+| `WEB_ORIGIN`        | `http://localhost:3000,http://127.0.0.1:3000`       | API: origins allowed to make writes      |
+| `SESSION_TTL_HOURS` | `168`                                               | API: how long a sign-in lasts (1 to 720) |
+| `API_INTERNAL_URL`  | `http://127.0.0.1:4000`                             | web server, to reach the API             |
 
-The API refuses to start on an invalid value and names the variable (never the value).
+The API refuses to start on an invalid value and names the variable (never the value). It also
+refuses `FORGE_DEV_AUTH=1` together with `NODE_ENV=production`.
 
 ## Start PostgreSQL
 
@@ -35,14 +40,16 @@ Pick one. Both use the same credentials and port `54329`, so `DATABASE_URL` does
 ### Option A: `npm run db:start` (no Docker)
 
 Runs real PostgreSQL 18 binaries from the `embedded-postgres` package. Data lives in
-`.data/postgres`. The first run creates the cluster and two databases (`forge`, `forge_test`).
+`.data/postgres`. The first run creates the cluster and three databases: `forge` (development),
+`forge_test` (integration tests) and `forge_e2e` (browser tests).
 
 ```bash
 npm run db:start      # keep this terminal open; Ctrl+C stops the database
 ```
 
 Stop it from another terminal (or if its terminal was closed) with `npm run db:stop`. Restarting
-reuses the existing data directory and never re-initialises it. It listens on loopback only.
+reuses the existing data directory and never re-initialises it, and creates any missing database.
+It listens on loopback only.
 
 This is for local development. It is not a production database.
 
@@ -55,16 +62,19 @@ docker compose up -d db
 > Not verified: Docker is not installed on the machine this was developed on, so
 > `docker-compose.yml` has not been run. If it misbehaves, use Option A and please fix the file.
 
-## Create the schema and run
+## Create the schema, seed it and run
 
 In a second terminal:
 
 ```bash
-npm run db:migrate    # expect: "Migrations up to date: 1/1 applied."
+npm run db:migrate    # expect: "Migrations up to date: 2/2 applied." (the number grows over time)
+npm run db:seed       # seven test accounts in two demo workspaces; skips if data already exists
 npm run dev           # API on http://127.0.0.1:4000, web on http://localhost:3000
 ```
 
-Open <http://localhost:3000>. All three rows on the Overview page should read **Running**.
+Open <http://localhost:3000>. You are sent to a sign-in page listing the test accounts; pick one.
+See [development accounts](development-accounts.md) for who is who.
+
 You can also probe the API directly:
 
 ```bash
@@ -73,6 +83,9 @@ curl http://127.0.0.1:4000/health/ready    # database + migrations; 503 if eithe
 ```
 
 To run the pieces separately: `npm run dev:api` and `npm run dev:web`.
+
+If you pulled Stage 1 into a database you created earlier, restart the database once
+(`npm run db:stop`, then `npm run db:start`) so it creates `forge_e2e`, then run `npm run db:migrate`.
 
 ## Troubleshooting
 
@@ -88,21 +101,28 @@ To run the pieces separately: `npm run dev:api` and `npm run dev:web`.
 **"Port 54329 is already in use"** when starting the database. Either it is already running
 (`npm run db:stop`, then start again), or Docker Compose holds the port (`docker compose down`).
 
-**The Overview page says "API is not reachable".** The API is not running or crashed. Start it with
+**The sign-in page says "Sign-in isn't configured for this environment yet".** The API was started
+without `FORGE_DEV_AUTH=1`. Add it to `.env` and restart `npm run dev`.
+
+**The sign-in page lists accounts but signing in does nothing, or you land back on sign-in.** The
+database has no seed data or is out of date: run `npm run db:migrate` and `npm run db:seed`.
+
+**A page says "This page failed to load".** The API is not running or crashed. Start it with
 `npm run dev`, and read the API terminal for the reason. If it exited immediately, the message
 names the invalid environment variable.
 
-**A row says "Pending migrations".** Run `npm run db:migrate`.
+**A status row says "Pending migrations".** Run `npm run db:migrate`.
 
-**A row says "Cannot connect to PostgreSQL".** The database is stopped. Run `npm run db:start`. The
-API recovers on its own once the database is back; no restart is needed.
+**A status row says "Cannot connect to PostgreSQL".** The database is stopped. Run
+`npm run db:start`. The API recovers on its own once the database is back; no restart is needed.
 
 **`db:start` fails after the machine crashed or the terminal was killed.** A leftover
 `.data/postgres/postmaster.pid` can confuse the next start. Run `npm run db:stop` first. If that
 does not help and you do not need the data, run `npm run db:reset` (deletes `.data/postgres`).
 
-**Start over from nothing.** `npm run db:stop`, `npm run db:reset`, then `npm run db:start` and
-`npm run db:migrate`.
+**Start over from nothing.** `npm run db:stop`, `npm run db:reset`, then `npm run db:start`,
+`npm run db:migrate` and `npm run db:seed`. To keep the database but wipe its contents and
+reseed, use `npm run db:reseed`.
 
 **Integration tests say `TEST_DATABASE_URL is not set`.** Create `.env` from `.env.example` and make
 sure the database is running.

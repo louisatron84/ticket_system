@@ -2,12 +2,12 @@ import { healthLiveSchema, healthReadySchema } from '@forge/shared';
 import { describe, expect, it } from 'vitest';
 import { buildApp, type AppDeps } from '../app';
 import { CheckFailure, type ReadinessCheck } from '../readiness';
-import { testConfig } from '../test-utils';
+import { testConfig, testDb } from '../test-utils';
 
 const passing = (name: ReadinessCheck['name']): ReadinessCheck => ({ name, run: async () => {} });
 
 function app(checks: ReadinessCheck[], extra: Partial<AppDeps> = {}) {
-  return buildApp({ config: testConfig(), readinessChecks: checks, ...extra });
+  return buildApp({ config: testConfig(), readinessChecks: checks, db: testDb(), ...extra });
 }
 
 describe('GET /health/live', () => {

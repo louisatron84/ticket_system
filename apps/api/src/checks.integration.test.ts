@@ -1,4 +1,4 @@
-import { createPool, loadDotEnv, runMigrations } from '@forge/db';
+import { createPool, loadDotEnv, resetDatabaseForTests, runMigrations } from '@forge/db';
 import type { Pool } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { databaseCheck, migrationsCheck } from './checks';
@@ -19,8 +19,7 @@ beforeAll(() => {
 });
 
 beforeEach(async () => {
-  await pool.query('DROP SCHEMA IF EXISTS drizzle CASCADE');
-  await pool.query('DROP TABLE IF EXISTS system_metadata');
+  await resetDatabaseForTests(pool);
 });
 
 afterAll(async () => {

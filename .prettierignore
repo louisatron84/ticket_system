@@ -10,3 +10,4 @@ docs/superpowers
 packages/db/migrations
 test-results
 playwright-report
+.next-e2e
