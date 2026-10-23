@@ -37,6 +37,20 @@ describe('system roles', () => {
     expect(hasPermission(held, 'reviews.approve')).toBe(false);
     expect(hasPermission(held, 'members.manage')).toBe(false);
   });
+
+  it('keeps project configuration to owners and administrators', () => {
+    const holders = SYSTEM_ROLE_KEYS.filter((key) =>
+      hasPermission(SYSTEM_ROLES[key].permissions, 'projects.manage'),
+    );
+    expect(holders).toEqual(['owner', 'admin']);
+  });
+
+  it('lets developers and reviewers comment on tickets, but not read-only members', () => {
+    const holders = SYSTEM_ROLE_KEYS.filter((key) =>
+      hasPermission(SYSTEM_ROLES[key].permissions, 'tickets.comment'),
+    );
+    expect(holders).toEqual(['owner', 'admin', 'developer', 'reviewer']);
+  });
 });
 
 describe('hasPermission', () => {

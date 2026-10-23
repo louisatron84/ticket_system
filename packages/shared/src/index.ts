@@ -4,3 +4,6 @@ export * from './health';
 export * from './http';
 export * from './permissions';
 export * from './role-rules';
+export * from './ticket-events';
+export * from './ticket-filters';
+export * from './tickets';

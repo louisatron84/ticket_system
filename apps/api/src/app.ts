@@ -12,6 +12,11 @@ import { registerHealthRoutes } from './routes/health';
 import { registerMeRoutes } from './routes/me';
 import { registerOrgRoutes } from './routes/orgs';
 import { registerPreferencesRoutes } from './routes/preferences';
+import { registerCommentRoutes } from './routes/comments';
+import { registerLabelRoutes } from './routes/labels';
+import { registerProjectRoutes } from './routes/projects';
+import { registerTicketRoutes } from './routes/tickets';
+import { registerViewRoutes } from './routes/views';
 
 export type { ReadinessCheck } from './readiness';
 
@@ -64,6 +69,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerAuthRoutes(app, { db: deps.db });
   registerOrgRoutes(app, { db: deps.db });
   registerPreferencesRoutes(app, { db: deps.db });
+  registerProjectRoutes(app, { db: deps.db });
+  registerTicketRoutes(app, { db: deps.db });
+  registerCommentRoutes(app, { db: deps.db });
+  registerLabelRoutes(app, { db: deps.db });
+  registerViewRoutes(app, { db: deps.db });
   if (config.devAuth) registerDevRoutes(app, { db: deps.db, config });
   registerHealthRoutes(app, {
     checks: deps.readinessChecks,

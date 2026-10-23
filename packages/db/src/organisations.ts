@@ -1,6 +1,7 @@
 import { SYSTEM_ROLES, SYSTEM_ROLE_KEYS, type SystemRoleKey } from '@forge/shared';
 import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
 import type { PgDatabase } from 'drizzle-orm/pg-core';
+import { ensureOrganisationDefaults } from './defaults';
 import type * as schema from './schema';
 import { organisations, roles } from './schema';
 
@@ -36,5 +37,6 @@ export async function createOrganisationWithSystemRoles(
     SystemRoleKey,
     string
   >;
+  await ensureOrganisationDefaults(executor, organisation.id);
   return { organisationId: organisation.id, roleIds };
 }

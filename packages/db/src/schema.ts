@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -167,5 +168,375 @@ export const auditEvents = pgTable(
     check('audit_events_source_check', sql`${table.source} in ('user', 'dev', 'system')`),
     check('audit_events_outcome_check', sql`${table.outcome} in ('success', 'denied', 'failed')`),
     index('audit_events_organisation_created_idx').on(table.organisationId, table.createdAt),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Ticketing (Stage 2)
+//
+// Every tenant-owned table carries organisation_id, and references between tenant tables use
+// composite foreign keys that include it. A ticket can therefore never point at another
+// workspace's type, priority, label or member, nor at another project's status or component,
+// whatever the application code does.
+// ---------------------------------------------------------------------------
+
+const organisationId = () =>
+  uuid('organisation_id')
+    .notNull()
+    .references(() => organisations.id, { onDelete: 'restrict' });
+
+export const projects = pgTable(
+  'projects',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    key: text('key').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    /** The number the next ticket gets. Incremented in the creating transaction. */
+    nextTicketNumber: integer('next_ticket_number').notNull().default(1),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('projects_organisation_key_unique').on(table.organisationId, table.key),
+    unique('projects_organisation_id_unique').on(table.organisationId, table.id),
+    check('projects_key_format', sql`${table.key} ~ '^[A-Z][A-Z0-9]{1,9}$'`),
+    check('projects_next_number_positive', sql`${table.nextTicketNumber} >= 1`),
+  ],
+);
+
+export const ticketTypes = pgTable(
+  'ticket_types',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    key: text('key').notNull(),
+    name: text('name').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    isActive: boolean('is_active').notNull().default(true),
+  },
+  (table) => [
+    unique('ticket_types_organisation_key_unique').on(table.organisationId, table.key),
+    unique('ticket_types_organisation_id_unique').on(table.organisationId, table.id),
+  ],
+);
+
+/** `rank` orders priorities: higher is more urgent. */
+export const priorities = pgTable(
+  'priorities',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    key: text('key').notNull(),
+    name: text('name').notNull(),
+    rank: integer('rank').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+  },
+  (table) => [
+    unique('priorities_organisation_key_unique').on(table.organisationId, table.key),
+    unique('priorities_organisation_id_unique').on(table.organisationId, table.id),
+  ],
+);
+
+export const projectStatuses = pgTable(
+  'project_statuses',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid('project_id').notNull(),
+    key: text('key').notNull(),
+    name: text('name').notNull(),
+    category: text('category').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    isInitial: boolean('is_initial').notNull().default(false),
+    isActive: boolean('is_active').notNull().default(true),
+  },
+  (table) => [
+    foreignKey({
+      name: 'project_statuses_project_fk',
+      columns: [table.organisationId, table.projectId],
+      foreignColumns: [projects.organisationId, projects.id],
+    }).onDelete('restrict'),
+    unique('project_statuses_project_key_unique').on(table.projectId, table.key),
+    unique('project_statuses_organisation_project_id_unique').on(
+      table.organisationId,
+      table.projectId,
+      table.id,
+    ),
+    // At most one status per project is where new tickets start.
+    uniqueIndex('project_statuses_one_initial')
+      .on(table.projectId)
+      .where(sql`${table.isInitial}`),
+    check(
+      'project_statuses_category_check',
+      sql`${table.category} in ('not_started', 'in_progress', 'completed')`,
+    ),
+  ],
+);
+
+/** A move from one status to another is allowed only if a row says so. */
+export const statusTransitions = pgTable(
+  'status_transitions',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid('project_id').notNull(),
+    fromStatusId: uuid('from_status_id').notNull(),
+    toStatusId: uuid('to_status_id').notNull(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'status_transitions_from_fk',
+      columns: [table.organisationId, table.projectId, table.fromStatusId],
+      foreignColumns: [
+        projectStatuses.organisationId,
+        projectStatuses.projectId,
+        projectStatuses.id,
+      ],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'status_transitions_to_fk',
+      columns: [table.organisationId, table.projectId, table.toStatusId],
+      foreignColumns: [
+        projectStatuses.organisationId,
+        projectStatuses.projectId,
+        projectStatuses.id,
+      ],
+    }).onDelete('restrict'),
+    unique('status_transitions_pair_unique').on(
+      table.projectId,
+      table.fromStatusId,
+      table.toStatusId,
+    ),
+    check('status_transitions_not_self', sql`${table.fromStatusId} <> ${table.toStatusId}`),
+  ],
+);
+
+export const components = pgTable(
+  'components',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid('project_id').notNull(),
+    name: text('name').notNull(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'components_project_fk',
+      columns: [table.organisationId, table.projectId],
+      foreignColumns: [projects.organisationId, projects.id],
+    }).onDelete('restrict'),
+    unique('components_organisation_project_id_unique').on(
+      table.organisationId,
+      table.projectId,
+      table.id,
+    ),
+    uniqueIndex('components_project_name_unique').on(table.projectId, sql`lower(${table.name})`),
+  ],
+);
+
+export const tickets = pgTable(
+  'tickets',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid('project_id').notNull(),
+    number: integer('number').notNull(),
+    key: text('key').notNull(),
+    title: text('title').notNull(),
+    description: text('description').notNull().default(''),
+    typeId: uuid('type_id').notNull(),
+    statusId: uuid('status_id').notNull(),
+    priorityId: uuid('priority_id').notNull(),
+    assigneeId: uuid('assignee_id'),
+    reporterId: uuid('reporter_id').notNull(),
+    componentId: uuid('component_id'),
+    dueDate: date('due_date', { mode: 'string' }),
+    estimateMinutes: integer('estimate_minutes'),
+    /** Bumped on every change; edits must present the version they started from. */
+    version: integer('version').notNull().default(1),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'tickets_project_fk',
+      columns: [table.organisationId, table.projectId],
+      foreignColumns: [projects.organisationId, projects.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'tickets_status_fk',
+      columns: [table.organisationId, table.projectId, table.statusId],
+      foreignColumns: [
+        projectStatuses.organisationId,
+        projectStatuses.projectId,
+        projectStatuses.id,
+      ],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'tickets_type_fk',
+      columns: [table.organisationId, table.typeId],
+      foreignColumns: [ticketTypes.organisationId, ticketTypes.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'tickets_priority_fk',
+      columns: [table.organisationId, table.priorityId],
+      foreignColumns: [priorities.organisationId, priorities.id],
+    }).onDelete('restrict'),
+    // Assignee and reporter must be members of the workspace the ticket lives in.
+    foreignKey({
+      name: 'tickets_assignee_member_fk',
+      columns: [table.organisationId, table.assigneeId],
+      foreignColumns: [organisationMemberships.organisationId, organisationMemberships.userId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'tickets_reporter_member_fk',
+      columns: [table.organisationId, table.reporterId],
+      foreignColumns: [organisationMemberships.organisationId, organisationMemberships.userId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'tickets_component_fk',
+      columns: [table.organisationId, table.projectId, table.componentId],
+      foreignColumns: [components.organisationId, components.projectId, components.id],
+    }).onDelete('restrict'),
+    unique('tickets_organisation_key_unique').on(table.organisationId, table.key),
+    unique('tickets_project_number_unique').on(table.projectId, table.number),
+    unique('tickets_organisation_id_unique').on(table.organisationId, table.id),
+    check('tickets_title_length', sql`char_length(${table.title}) between 1 and 200`),
+    check('tickets_version_positive', sql`${table.version} >= 1`),
+    check('tickets_number_positive', sql`${table.number} >= 1`),
+    index('tickets_organisation_project_status_idx').on(
+      table.organisationId,
+      table.projectId,
+      table.statusId,
+    ),
+    index('tickets_organisation_assignee_idx').on(table.organisationId, table.assigneeId),
+    index('tickets_organisation_updated_idx').on(table.organisationId, table.updatedAt.desc()),
+    index('tickets_organisation_due_idx').on(table.organisationId, table.dueDate),
+    // Substring search on titles (LIKE '%text%') uses this trigram index.
+    index('tickets_title_trgm_idx').using('gin', sql`lower(${table.title}) gin_trgm_ops`),
+  ],
+);
+
+export const labels = pgTable(
+  'labels',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    name: text('name').notNull(),
+    color: text('color').notNull(),
+  },
+  (table) => [
+    unique('labels_organisation_id_unique').on(table.organisationId, table.id),
+    uniqueIndex('labels_organisation_name_unique').on(
+      table.organisationId,
+      sql`lower(${table.name})`,
+    ),
+    check(
+      'labels_color_check',
+      sql`${table.color} in ('slate', 'blue', 'teal', 'green', 'amber', 'orange', 'red', 'violet')`,
+    ),
+  ],
+);
+
+export const ticketLabels = pgTable(
+  'ticket_labels',
+  {
+    organisationId: organisationId(),
+    ticketId: uuid('ticket_id').notNull(),
+    labelId: uuid('label_id').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ticketId, table.labelId] }),
+    foreignKey({
+      name: 'ticket_labels_ticket_fk',
+      columns: [table.organisationId, table.ticketId],
+      foreignColumns: [tickets.organisationId, tickets.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'ticket_labels_label_fk',
+      columns: [table.organisationId, table.labelId],
+      foreignColumns: [labels.organisationId, labels.id],
+    }).onDelete('restrict'),
+    index('ticket_labels_label_idx').on(table.labelId),
+  ],
+);
+
+export const ticketComments = pgTable(
+  'ticket_comments',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    ticketId: uuid('ticket_id').notNull(),
+    authorId: uuid('author_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    body: text('body').notNull(),
+    createdAt: createdAt(),
+    editedAt: timestamp('edited_at', { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: 'ticket_comments_ticket_fk',
+      columns: [table.organisationId, table.ticketId],
+      foreignColumns: [tickets.organisationId, tickets.id],
+    }).onDelete('restrict'),
+    index('ticket_comments_ticket_idx').on(table.ticketId, table.createdAt),
+  ],
+);
+
+/** The ticket's history. Rows are only ever added. */
+export const ticketEvents = pgTable(
+  'ticket_events',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    ticketId: uuid('ticket_id').notNull(),
+    actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'restrict' }),
+    source: text('source').notNull(),
+    type: text('type').notNull(),
+    data: jsonb('data').notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'ticket_events_ticket_fk',
+      columns: [table.organisationId, table.ticketId],
+      foreignColumns: [tickets.organisationId, tickets.id],
+    }).onDelete('restrict'),
+    check('ticket_events_source_check', sql`${table.source} in ('user', 'system')`),
+    index('ticket_events_ticket_idx').on(table.ticketId, table.createdAt, table.id),
+  ],
+);
+
+export const savedViews = pgTable(
+  'saved_views',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    scope: text('scope').notNull(),
+    definition: jsonb('definition').notNull(),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check('saved_views_scope_check', sql`${table.scope} in ('personal', 'shared')`),
+    // Names are unique per person for personal views, and per workspace for shared ones.
+    uniqueIndex('saved_views_personal_name_unique')
+      .on(table.organisationId, table.ownerUserId, sql`lower(${table.name})`)
+      .where(sql`${table.scope} = 'personal'`),
+    uniqueIndex('saved_views_shared_name_unique')
+      .on(table.organisationId, sql`lower(${table.name})`)
+      .where(sql`${table.scope} = 'shared'`),
   ],
 );
