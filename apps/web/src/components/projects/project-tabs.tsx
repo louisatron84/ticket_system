@@ -1,0 +1,44 @@
+'use client';
+
+import { Columns3, List } from 'lucide-react';
+import Link from 'next/link';
+import { usePathname, useSearchParams } from 'next/navigation';
+
+/**
+ * Board and List of one project. The current tab carries the accent colour, the same way the
+ * current page does in the sidebar. Filters in the address travel with you from tab to tab.
+ */
+export function ProjectTabs({ basePath }: { basePath: string }) {
+  const pathname = usePathname();
+  const search = useSearchParams().toString();
+  const tabs = [
+    { label: 'Board', path: `${basePath}/board`, icon: Columns3 },
+    { label: 'List', path: `${basePath}/list`, icon: List },
+  ];
+
+  return (
+    <nav aria-label="Project views">
+      <ul className="flex gap-1 border-b border-edge">
+        {tabs.map((tab) => {
+          const active = pathname === tab.path;
+          return (
+            <li key={tab.path}>
+              <Link
+                href={search ? `${tab.path}?${search}` : tab.path}
+                aria-current={active ? 'page' : undefined}
+                className={`-mb-px inline-flex h-9 items-center gap-2 border-b-2 px-3 text-[13px] font-medium transition-colors ${
+                  active
+                    ? 'border-ember text-text'
+                    : 'border-transparent text-muted hover:text-text'
+                }`}
+              >
+                <tab.icon size={14} aria-hidden="true" />
+                {tab.label}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}

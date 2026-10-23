@@ -18,6 +18,18 @@
   --ember: #e2a03f;
   --ok: #5dc38e;
   --fail: #f26d74;
+  /* Work that is under way. Steel blue, so it sits quietly beside the graphite. */
+  --active: #6fa8e6;
+
+  /* Label colours: the eight names the API allows, each muted enough to sit on graphite. */
+  --label-slate: #98a2b3;
+  --label-blue: #6fa8e6;
+  --label-teal: #4fc3b5;
+  --label-green: #62c58f;
+  --label-amber: #d8ad55;
+  --label-orange: #e58f5f;
+  --label-red: #ee7a80;
+  --label-violet: #a78fe6;
 }
 
 @theme inline {
@@ -31,6 +43,7 @@
   --color-ember: var(--ember);
   --color-ok: var(--ok);
   --color-fail: var(--fail);
+  --color-active: var(--active);
   --font-sans: 'Instrument Sans Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, 'Cascadia Mono', monospace;
 }
@@ -77,6 +90,40 @@ body {
   50% {
     opacity: 0.5;
   }
+}
+
+/*
+ * A label chip takes its colour from the --chip variable. The colour name always comes from the
+ * API's fixed list, so there is no way to put arbitrary CSS into a chip.
+ */
+.label-chip {
+  color: var(--chip);
+  background: color-mix(in srgb, var(--chip) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip) 30%, transparent);
+}
+.label-chip[data-color='slate'] {
+  --chip: var(--label-slate);
+}
+.label-chip[data-color='blue'] {
+  --chip: var(--label-blue);
+}
+.label-chip[data-color='teal'] {
+  --chip: var(--label-teal);
+}
+.label-chip[data-color='green'] {
+  --chip: var(--label-green);
+}
+.label-chip[data-color='amber'] {
+  --chip: var(--label-amber);
+}
+.label-chip[data-color='orange'] {
+  --chip: var(--label-orange);
+}
+.label-chip[data-color='red'] {
+  --chip: var(--label-red);
+}
+.label-chip[data-color='violet'] {
+  --chip: var(--label-violet);
 }
 
 @media (prefers-reduced-motion: reduce) {
