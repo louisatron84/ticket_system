@@ -37,22 +37,22 @@ the names were changed from the original plain ones; the keys are as they were.
 | Warming      | `open`        | `not_started` |         |
 | In the Forge | `in_progress` | `in_progress` |         |
 | Tempering    | `in_review`   | `in_progress` |         |
-| Blocked      | `blocked`     | `in_progress` |         |
+| Jammed       | `blocked`     | `in_progress` |         |
 | Quenched     | `done`        | `completed`   |         |
 | Scrapped     | `cancelled`   | `completed`   |         |
 
 A ticket can move only along a listed transition. Anything not listed is refused, including a jump
 straight from Tempering back to Cold Steel.
 
-| From         | Can move to                                     |
-| ------------ | ----------------------------------------------- |
-| Cold Steel   | Warming, Scrapped                               |
-| Warming      | Cold Steel, In the Forge, Blocked, Scrapped     |
-| In the Forge | Warming, Tempering, Blocked, Quenched, Scrapped |
-| Tempering    | In the Forge, Blocked, Quenched, Scrapped       |
-| Blocked      | Warming, In the Forge, Scrapped                 |
-| Quenched     | Warming (reopen)                                |
-| Scrapped     | Cold Steel, Warming (reopen)                    |
+| From         | Can move to                                    |
+| ------------ | ---------------------------------------------- |
+| Cold Steel   | Warming, Scrapped                              |
+| Warming      | Cold Steel, In the Forge, Jammed, Scrapped     |
+| In the Forge | Warming, Tempering, Jammed, Quenched, Scrapped |
+| Tempering    | In the Forge, Jammed, Quenched, Scrapped       |
+| Jammed       | Warming, In the Forge, Scrapped                |
+| Quenched     | Warming (reopen)                               |
+| Scrapped     | Cold Steel, Warming (reopen)                   |
 
 Transitions are rows (`status_transitions`), not code, and both ends must be statuses of the same
 project (composite foreign keys), so a transition cannot point into another project's workflow.
@@ -69,7 +69,7 @@ and the filters.
 | Warming      | warming   | `#9db0c6` | ring                |
 | In the Forge | forge     | `#e8793a` | half-filled ring    |
 | Tempering    | tempering | `#f2c14e` | half-filled ring    |
-| Blocked      | blocked   | `#c24d46` | ring with a bar     |
+| Jammed       | blocked   | `#c24d46` | ring with a bar     |
 | Quenched     | quenched  | `#5b86b0` | tick in a disc      |
 | Scrapped     | scrapped  | `#76808f` | struck-through ring |
 

@@ -59,11 +59,11 @@ export const DEFAULT_TICKET_TYPES = [
 
 /** `rank` orders priorities: higher is more urgent. */
 export const DEFAULT_PRIORITIES = [
-  { key: 'lowest', name: 'Lowest', rank: 1 },
-  { key: 'low', name: 'Low', rank: 2 },
-  { key: 'normal', name: 'Normal', rank: 3 },
-  { key: 'high', name: 'High', rank: 4 },
-  { key: 'critical', name: 'Critical', rank: 5 },
+  { key: 'lowest', name: 'Heatless', rank: 1 },
+  { key: 'low', name: 'Ember', rank: 2 },
+  { key: 'normal', name: 'Flame', rank: 3 },
+  { key: 'high', name: 'Blaze', rank: 4 },
+  { key: 'critical', name: 'Inferno', rank: 5 },
 ] as const;
 
 type TemplateStatus = {
@@ -83,7 +83,7 @@ export const DEFAULT_STATUS_TEMPLATE: {
     { key: 'open', name: 'Warming', category: 'not_started' },
     { key: 'in_progress', name: 'In the Forge', category: 'in_progress' },
     { key: 'in_review', name: 'Tempering', category: 'in_progress' },
-    { key: 'blocked', name: 'Blocked', category: 'in_progress' },
+    { key: 'blocked', name: 'Jammed', category: 'in_progress' },
     { key: 'done', name: 'Quenched', category: 'completed' },
     { key: 'cancelled', name: 'Scrapped', category: 'completed' },
   ],

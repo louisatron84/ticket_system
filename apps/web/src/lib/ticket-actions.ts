@@ -35,7 +35,7 @@ export function bulkSummary(results: BulkTicketResult['results']): {
 
 /**
  * What a ticket made without choosing starts with: the Task type (else the first type) and the
- * Normal priority (else the middle one by rank). An empty id means the workspace has none.
+ * Flame (normal) priority (else the middle one by rank). An empty id means the workspace has none.
  */
 export function defaultTypeAndPriority(config: TicketConfig): {
   typeId: string;

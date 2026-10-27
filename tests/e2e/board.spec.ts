@@ -44,7 +44,7 @@ test.describe('the board', () => {
       ['Warming', 'Warming, 3 tickets'],
       ['In the Forge', 'In the Forge, 2 tickets'],
       ['Tempering', 'Tempering, 1 ticket'],
-      ['Blocked', 'Blocked, 1 ticket'],
+      ['Jammed', 'Jammed, 1 ticket'],
       ['Quenched', 'Quenched, 2 tickets'],
     ];
     for (const [name, label] of expected) {
@@ -87,7 +87,7 @@ test.describe('the board', () => {
       ['Warming', 'warming'],
       ['In the Forge', 'forge'],
       ['Tempering', 'tempering'],
-      ['Blocked', 'blocked'],
+      ['Jammed', 'blocked'],
       ['Quenched', 'quenched'],
     ];
     for (const [name, heat] of heats) {
@@ -116,8 +116,8 @@ test.describe('the board', () => {
 
     await openBoard(page);
     await expect(card(page, 'WEB-5').getByTitle(`${before + 2} comments`)).toBeVisible();
-    // WEB-3 is Critical; the name is there for a screen reader, next to the bars.
-    await expect(card(page, 'WEB-3')).toContainText('Priority: Critical');
+    // WEB-3 is Inferno; the name is there for a screen reader, next to the bars.
+    await expect(card(page, 'WEB-3')).toContainText('Priority: Inferno');
     // A ticket nobody has commented on shows no count at all.
     await expect(card(page, 'WEB-12').getByTitle(/comments?$/)).toHaveCount(0);
   });
@@ -171,19 +171,19 @@ test.describe('the board', () => {
     await openBoard(page);
     await expect(column(page, 'Tempering').locator('li[data-ticket="WEB-3"]')).toBeVisible();
 
-    await dragCard(page, 'WEB-3', 'Blocked');
-    await expect(column(page, 'Blocked').locator('li[data-ticket="WEB-3"]')).toBeVisible();
-    await expect(column(page, 'Blocked')).toHaveAttribute('aria-label', 'Blocked, 2 tickets');
+    await dragCard(page, 'WEB-3', 'Jammed');
+    await expect(column(page, 'Jammed').locator('li[data-ticket="WEB-3"]')).toBeVisible();
+    await expect(column(page, 'Jammed')).toHaveAttribute('aria-label', 'Jammed, 2 tickets');
     await expect(column(page, 'Tempering')).toHaveAttribute('aria-label', 'Tempering, 0 tickets');
 
     await page.reload();
-    await expect(column(page, 'Blocked').locator('li[data-ticket="WEB-3"]')).toBeVisible();
+    await expect(column(page, 'Jammed').locator('li[data-ticket="WEB-3"]')).toBeVisible();
 
     // The ticket itself agrees, and its history says who moved it.
     await page.goto('/w/acme/tickets/WEB-3');
-    await expect(page.getByLabel('Status').locator('option:checked')).toHaveText('Blocked');
+    await expect(page.getByLabel('Status').locator('option:checked')).toHaveText('Jammed');
     await expect(page.getByRole('region', { name: 'Activity' })).toContainText(
-      'moved this from Tempering to Blocked',
+      'moved this from Tempering to Jammed',
     );
   });
 
@@ -225,7 +225,7 @@ test.describe('the board', () => {
     await expect(menu.getByRole('button')).toHaveText([
       'Cold Steel',
       'In the Forge',
-      'Blocked',
+      'Jammed',
       'Scrapped',
     ]);
     await menu.getByRole('button', { name: 'In the Forge' }).click();
@@ -268,7 +268,7 @@ test.describe('the board', () => {
     // This page still shows it in Tempering, and the drag uses that old version.
     await dragCard(page, 'WEB-3', 'In the Forge');
     await expect(page.getByText(/changed by someone else/)).toBeVisible();
-    await expect(column(page, 'Blocked').locator('li[data-ticket="WEB-3"]')).toBeVisible();
+    await expect(column(page, 'Jammed').locator('li[data-ticket="WEB-3"]')).toBeVisible();
     await expect(column(page, 'In the Forge').locator('li[data-ticket="WEB-3"]')).toHaveCount(0);
   });
 
@@ -442,18 +442,18 @@ test.describe('board columns', () => {
   test('hiding a column removes it and is remembered after a reload', async ({ page }) => {
     await signInAs(page, 'developer');
     await openBoard(page);
-    await expect(column(page, 'Blocked')).toBeVisible();
+    await expect(column(page, 'Jammed')).toBeVisible();
 
     await openDisplay(page);
-    await flip(page, 'Show Blocked');
-    await expect(column(page, 'Blocked')).toHaveCount(0);
+    await flip(page, 'Show Jammed');
+    await expect(column(page, 'Jammed')).toHaveCount(0);
 
     await page.reload();
     await hydrated(page);
     await expect(column(page, 'Tempering')).toBeVisible();
-    await expect(column(page, 'Blocked')).toHaveCount(0);
+    await expect(column(page, 'Jammed')).toHaveCount(0);
     await openDisplay(page);
-    await expect(page.getByRole('switch', { name: 'Show Blocked' })).not.toBeChecked();
+    await expect(page.getByRole('switch', { name: 'Show Jammed' })).not.toBeChecked();
   });
 
   test('a column can be moved with the buttons and keeps its place after a reload', async ({
@@ -461,7 +461,7 @@ test.describe('board columns', () => {
   }) => {
     await signInAs(page, 'developer');
     await openBoard(page);
-    const normal = ['Cold Steel', 'Warming', 'In the Forge', 'Tempering', 'Blocked', 'Quenched'];
+    const normal = ['Cold Steel', 'Warming', 'In the Forge', 'Tempering', 'Jammed', 'Quenched'];
     await expect(headings(page)).toHaveText(normal);
 
     await openDisplay(page);
@@ -469,7 +469,7 @@ test.describe('board columns', () => {
       saved(page),
       page.getByRole('button', { name: 'Move Quenched up' }).click(),
     ]);
-    const moved = ['Cold Steel', 'Warming', 'In the Forge', 'Tempering', 'Quenched', 'Blocked'];
+    const moved = ['Cold Steel', 'Warming', 'In the Forge', 'Tempering', 'Quenched', 'Jammed'];
     await expect(headings(page)).toHaveText(moved);
 
     await page.reload();
@@ -486,13 +486,13 @@ test.describe('board columns', () => {
     await signInAs(page, 'developer');
     await openBoard(page);
     await openDisplay(page);
-    await flip(page, 'Show Blocked');
-    await expect(column(page, 'Blocked')).toHaveCount(0);
+    await flip(page, 'Show Jammed');
+    await expect(column(page, 'Jammed')).toHaveCount(0);
 
     await page.goto('/w/acme/projects/API/board');
     await expect(page.getByRole('heading', { name: 'Platform API', level: 1 })).toBeVisible();
     await hydrated(page);
-    await expect(column(page, 'Blocked')).toBeVisible();
+    await expect(column(page, 'Jammed')).toBeVisible();
   });
 
   test('when every column is hidden the board says so, and the way back works', async ({
@@ -506,7 +506,7 @@ test.describe('board columns', () => {
       'Warming',
       'In the Forge',
       'Tempering',
-      'Blocked',
+      'Jammed',
       'Quenched',
     ]) {
       await flip(page, `Show ${name}`);
@@ -525,24 +525,24 @@ test.describe('board columns', () => {
     await signInAs(page, 'developer');
     await openBoard(page);
     await openDisplay(page);
-    await flip(page, 'Show Blocked');
+    await flip(page, 'Show Jammed');
     await page.keyboard.press('Escape');
 
     await actionsButton(page, 'WEB-2').click();
     await actionsMenu(page, 'WEB-2').getByRole('button', { name: 'Move to…' }).click();
     await page
       .getByRole('group', { name: 'Move WEB-2 to' })
-      .getByRole('button', { name: 'Blocked' })
+      .getByRole('button', { name: 'Jammed' })
       .click();
 
     await expect(
-      page.getByText('WEB-2 moved to Blocked, which is hidden on your board.'),
+      page.getByText('WEB-2 moved to Jammed, which is hidden on your board.'),
     ).toBeVisible();
     await expect(card(page, 'WEB-2')).toHaveCount(0);
 
     // Nothing is lost: the ticket is where the list says it is.
     await page.goto('/w/acme/projects/WEB/list');
-    await expect(page.getByRole('row', { name: /WEB-2/ })).toContainText('Blocked');
+    await expect(page.getByRole('row', { name: /WEB-2/ })).toContainText('Jammed');
   });
 
   test('dragging and the keyboard work with columns hidden, and skip them', async ({ page }) => {
@@ -553,12 +553,12 @@ test.describe('board columns', () => {
     await flip(page, 'Show Tempering');
     await page.keyboard.press('Escape');
 
-    // With the mouse: WEB-1 goes from In the Forge straight to Blocked.
-    await dragCard(page, 'WEB-1', 'Blocked');
-    await expect(column(page, 'Blocked').locator('li[data-ticket="WEB-1"]')).toBeVisible();
+    // With the mouse: WEB-1 goes from In the Forge straight to Jammed.
+    await dragCard(page, 'WEB-1', 'Jammed');
+    await expect(column(page, 'Jammed').locator('li[data-ticket="WEB-1"]')).toBeVisible();
 
     // With the keyboard: WEB-5 is in the Forge; Tempering is hidden, so the next column to the
-    // right that takes it is Blocked.
+    // right that takes it is Jammed.
     const announcement = page.locator('[id^="DndLiveRegion"]');
     const grip = page.getByRole('button', { name: 'Pick up WEB-5 to move it' });
     // Grips are switched off while the first move is being saved; wait for it to finish.
@@ -572,10 +572,10 @@ test.describe('board columns', () => {
     // Steel refusing it (it is marked as such) shows they do. A person is slower than this.
     await expect(column(page, 'Cold Steel')).toHaveAttribute('title', /cannot move to Cold Steel/);
     await page.keyboard.press('ArrowRight');
-    await expect(announcement).toHaveText('WEB-5 is over Blocked.');
+    await expect(announcement).toHaveText('WEB-5 is over Jammed.');
     await page.keyboard.press('Space');
-    await expect(announcement).toHaveText('WEB-5 dropped on Blocked.');
-    await expect(column(page, 'Blocked').locator('li[data-ticket="WEB-5"]')).toBeVisible();
+    await expect(announcement).toHaveText('WEB-5 dropped on Jammed.');
+    await expect(column(page, 'Jammed').locator('li[data-ticket="WEB-5"]')).toBeVisible();
   });
 });
 
@@ -633,11 +633,11 @@ test.describe('quick create in a column', () => {
       'Check the quench tank',
     );
 
-    // Made the way a quick ticket is: Task, Normal, in the column's status.
+    // Made the way a quick ticket is: Task, Flame, in the column's status.
     const made = await ticketOf(page, 'WEB-13');
     expect(made.status.name).toBe('Tempering');
     expect(made.type.key).toBe('task');
-    expect(made.priority.name).toBe('Normal');
+    expect(made.priority.name).toBe('Flame');
   });
 
   test('Escape closes the form without creating anything', async ({ page }) => {
@@ -682,17 +682,17 @@ test.describe('the card menu', () => {
   test('Priority changes the ticket and its bars', async ({ page }) => {
     await signInAs(page, 'developer');
     await openBoard(page);
-    await expect(card(page, 'WEB-3')).toContainText('Priority: Critical');
+    await expect(card(page, 'WEB-3')).toContainText('Priority: Inferno');
 
     await actionsButton(page, 'WEB-3').click();
     await actionsMenu(page, 'WEB-3').getByRole('button', { name: 'Priority…' }).click();
     await page
       .getByRole('group', { name: 'Priority for WEB-3' })
-      .getByRole('button', { name: 'High', exact: true })
+      .getByRole('button', { name: 'Blaze', exact: true })
       .click();
 
-    await expect(card(page, 'WEB-3')).toContainText('Priority: High');
-    expect((await ticketOf(page, 'WEB-3')).priority.name).toBe('High');
+    await expect(card(page, 'WEB-3')).toContainText('Priority: Blaze');
+    expect((await ticketOf(page, 'WEB-3')).priority.name).toBe('Blaze');
   });
 
   test('Assign to me puts the person on the card, and Unassign takes them off', async ({
@@ -799,16 +799,16 @@ test.describe('the card menu', () => {
     ).toBeFocused();
     await page.keyboard.press('Enter');
 
-    // The list opens on the priority in force (Critical); High is the next one down.
+    // The list opens on the priority in force (Inferno); Blaze is the next one down.
     const priorities = page.getByRole('group', { name: 'Priority for WEB-3' });
-    await expect(priorities.getByRole('button', { name: 'Critical' })).toBeFocused();
+    await expect(priorities.getByRole('button', { name: 'Inferno' })).toBeFocused();
     await page.keyboard.press('Tab');
-    await expect(priorities.getByRole('button', { name: 'High', exact: true })).toBeFocused();
+    await expect(priorities.getByRole('button', { name: 'Blaze', exact: true })).toBeFocused();
     await page.keyboard.press('Enter');
 
-    await expect(card(page, 'WEB-3')).toContainText('Priority: High');
+    await expect(card(page, 'WEB-3')).toContainText('Priority: Blaze');
     await expect(actionsButton(page, 'WEB-3')).toBeFocused();
-    expect((await ticketOf(page, 'WEB-3')).priority.name).toBe('High');
+    expect((await ticketOf(page, 'WEB-3')).priority.name).toBe('Blaze');
   });
 
   test('a list opens on the first choice when none is in force, and Back is reachable', async ({

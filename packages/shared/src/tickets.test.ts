@@ -128,7 +128,7 @@ describe('default templates', () => {
       ['open', 'Warming'],
       ['in_progress', 'In the Forge'],
       ['in_review', 'Tempering'],
-      ['blocked', 'Blocked'],
+      ['blocked', 'Jammed'],
       ['done', 'Quenched'],
       ['cancelled', 'Scrapped'],
     ]);
@@ -465,7 +465,7 @@ describe('ticket summary', () => {
     project: { id: uuid, key: 'WEB', name: 'Web App' },
     type: { id: uuid, key: 'bug', name: 'Bug' },
     status: { id: uuid, key: 'in_review', name: 'Tempering', category: 'in_progress' },
-    priority: { id: uuid, key: 'high', name: 'High', rank: 4 },
+    priority: { id: uuid, key: 'high', name: 'Blaze', rank: 4 },
     assignee: null,
     labels: [],
     dueDate: null,

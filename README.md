@@ -11,8 +11,8 @@ ticket page, following each project's workflow. The Tickets page has Board and L
 project's tickets can be seen and moved on one board. Common work is quick: archive and duplicate,
 create straight into a board column, change status, priority and assignee from a card or a list row,
 change many tickets at once, and press Ctrl+K for the command menu or `?` for the keyboard shortcuts. Statuses are named after the heat of the work (Cold
-Steel, Warming, In the Forge, Tempering, Blocked, Quenched, Scrapped) and coloured to match, and
-each person can arrange their own board from its Display menu: which card details show, how tightly
+Steel, Warming, In the Forge, Tempering, Jammed, Quenched, Scrapped) and coloured to match, the
+priorities run from Heatless through Ember, Flame and Blaze to Inferno, and each person can arrange their own board from its Display menu: which card details show, how tightly
 cards pack, and which columns appear and in what order. Roles decide what each account can see and
 do, everything is enforced by the API, and workspaces are isolated from each other.
 

@@ -37,10 +37,11 @@ not listed as working in the README, assume it does not exist yet.
 - **Touch dragging is untested, and so is a screen reader**, as before; the new Display menu is
   keyboard-operable and its controls are real switches and radios, but it has only been exercised
   with a keyboard and a mouse.
-- **Status names changed.** Backlog, Open, In Progress, In Review, Done and Cancelled are now Cold
-  Steel, Warming, In the Forge, Tempering, Quenched and Scrapped (Blocked is unchanged). History
-  lines written before the rename keep the old names; new lines use the new ones. A workspace's own
-  rename of a status (when Part B allows it) is never overwritten by the migration.
+- **Status and priority names changed.** Backlog, Open, In Progress, In Review, Blocked, Done and
+  Cancelled are now Cold Steel, Warming, In the Forge, Tempering, Jammed, Quenched and Scrapped.
+  Lowest, Low, Normal, High and Critical are now Heatless, Ember, Flame, Blaze and Inferno. History
+  lines written before a rename keep the old names; new lines use the new ones. A workspace's own
+  rename of a status or priority (when Part B allows it) is never overwritten by the migrations.
 - **"Where you are" is steel blue**, not amber, in the focus ring, current tab, current sidebar
   item and drag target, because orange now means a status. Amber remains the brand colour and the
   colour of warnings.

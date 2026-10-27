@@ -29,6 +29,13 @@
       "when": 1792760964463,
       "tag": "0003_forge_status_names",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793124908196,
+      "tag": "0004_forge_heat_names",
+      "breakpoints": true
     }
   ]
 }

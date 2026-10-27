@@ -199,7 +199,7 @@ describe('changing tickets in bulk', () => {
 
       const updates = await eventsOf(keys[index]!, 'ticket.updated');
       expect(updates).toHaveLength(1);
-      expect(updates[0]!.data).toMatchObject({ changes: [{ field: 'priority', to: 'Critical' }] });
+      expect(updates[0]!.data).toMatchObject({ changes: [{ field: 'priority', to: 'Inferno' }] });
     }
     // Tickets that were not asked for are untouched.
     expect((await ticketRow(ctx.db, 'LST-4'))!.version).toBe(1);

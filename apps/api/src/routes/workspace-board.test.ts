@@ -88,7 +88,7 @@ describe('the columns', () => {
       'Warming',
       'In the Forge',
       'Tempering',
-      'Blocked',
+      'Jammed',
       'Quenched',
       'Scrapped',
     ]);

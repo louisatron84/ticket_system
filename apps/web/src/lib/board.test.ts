@@ -68,7 +68,7 @@ const ticket = (
   project: { ...project, name: project.key },
   type: { id: uuid(901), key: 'task', name: 'Task' },
   status: from,
-  priority: { id: uuid(902), key: 'normal', name: 'Normal', rank: 3 },
+  priority: { id: uuid(902), key: 'normal', name: 'Flame', rank: 3 },
   assignee: null,
   labels: [],
   dueDate: null,

@@ -62,7 +62,7 @@ test.describe('the Tickets page', () => {
       'aria-current',
       'page',
     );
-    await expect(page.getByRole('button', { name: 'Remove filter Priority: High' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Remove filter Priority: Blaze' })).toBeVisible();
 
     await tabs(page).getByRole('link', { name: 'List' }).click();
     await expect(page).toHaveURL(/\/w\/acme\/tickets\?priority=high$/);
@@ -77,7 +77,7 @@ test.describe('the Tickets page', () => {
       ['Warming', 'Warming, 5 tickets'],
       ['In the Forge', 'In the Forge, 3 tickets'],
       ['Tempering', 'Tempering, 2 tickets'],
-      ['Blocked', 'Blocked, 2 tickets'],
+      ['Jammed', 'Jammed, 2 tickets'],
       ['Quenched', 'Quenched, 3 tickets'],
     ];
     for (const [name, label] of expected) {
@@ -127,18 +127,18 @@ test.describe('the Tickets page', () => {
   test('column choices on the Tickets board are its own', async ({ page }) => {
     await signInAs(page, 'developer');
     await openTicketsBoard(page);
-    await hideColumn(page, 'Blocked');
-    await expect(column(page, 'Blocked')).toHaveCount(0);
+    await hideColumn(page, 'Jammed');
+    await expect(column(page, 'Jammed')).toHaveCount(0);
 
     await page.goto('/w/acme/projects/WEB/board');
     await hydrated(page);
-    await expect(column(page, 'Blocked')).toBeVisible();
+    await expect(column(page, 'Jammed')).toBeVisible();
     await hideColumn(page, 'Tempering');
     await expect(column(page, 'Tempering')).toHaveCount(0);
 
     await openTicketsBoard(page);
     await expect(column(page, 'Tempering')).toBeVisible();
-    await expect(column(page, 'Blocked')).toHaveCount(0);
+    await expect(column(page, 'Jammed')).toHaveCount(0);
   });
 
   test('a saved board view without a project opens the Tickets board', async ({ page }) => {

@@ -51,9 +51,9 @@ test.describe('the command menu', () => {
 
     await openTicket(page, 'WEB-3');
     await open(page);
-    await input(page).fill('move to blocked');
-    await page.getByRole('option', { name: 'Move to Blocked' }).click();
-    await expect(page.getByLabel('Status').locator('option:checked')).toHaveText('Blocked');
+    await input(page).fill('move to jammed');
+    await page.getByRole('option', { name: 'Move to Jammed' }).click();
+    await expect(page.getByLabel('Status').locator('option:checked')).toHaveText('Jammed');
   });
 
   test('the arrow keys choose, and Escape closes and gives the focus back', async ({ page }) => {

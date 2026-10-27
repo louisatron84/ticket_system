@@ -60,7 +60,7 @@ Ticketing (Stage 2). Every table below carries `organisation_id`.
 | -------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `projects`           | A body of work with a short key (`WEB`) and a ticket counter              | unique `(organisation_id, key)`; key matches `^[A-Z][A-Z0-9]{1,9}$`; `next_ticket_number >= 1`; `archived_at`                                                       |
 | `ticket_types`       | Task, Bug, Feature and so on, per workspace                               | unique `(organisation_id, key)`; `is_active`, `sort_order`                                                                                                          |
-| `priorities`         | Lowest to Critical, per workspace; higher `rank` is more urgent           | unique `(organisation_id, key)`; `is_active`                                                                                                                        |
+| `priorities`         | Heatless to Inferno, per workspace; higher `rank` is more urgent          | unique `(organisation_id, key)`; `is_active`                                                                                                                        |
 | `project_statuses`   | A project's own statuses, each in a category                              | unique `(project_id, key)`; category in (`not_started`, `in_progress`, `completed`); **at most one `is_initial` per project** (partial unique index)                |
 | `status_transitions` | The moves a ticket may make between two statuses of one project           | unique `(project_id, from, to)`; from and to must differ; both must be statuses of the same project (composite FKs)                                                 |
 | `components`         | A named part of a project                                                 | unique `(project_id, lower(name))`                                                                                                                                  |
@@ -75,9 +75,11 @@ Ticketing (Stage 2). Every table below carries `organisation_id`.
 
 - **Status names and keys.** A status has a stable `key` (`backlog`, `open`, `in_progress`,
   `in_review`, `blocked`, `done`, `cancelled`) and a `name` people read. The defaults are named after
-  the heat of the work (Cold Steel, Warming, In the Forge, Tempering, Blocked, Quenched, Scrapped;
-  see [workflows](workflows.md#the-default-workflow)). Migration `0003_forge_status_names` renamed
-  existing projects' statuses, but only those whose key and name were still the old defaults.
+  the heat of the work (Cold Steel, Warming, In the Forge, Tempering, Jammed, Quenched, Scrapped;
+  see [workflows](workflows.md#the-default-workflow)). Migrations `0003_forge_status_names` and
+  `0004_forge_heat_names` renamed existing projects' statuses, but only those whose key and name
+  were still the old defaults. `0004` also renamed the priorities the same way: `lowest` Heatless,
+  `low` Ember, `normal` Flame, `high` Blaze, `critical` Inferno.
   Saved views, filters and board settings refer to keys, so the rename did not touch them.
 - **Per-person board settings** live in `user_preferences.data` under `board` and `boardColumns`
   (see [architecture](architecture.md#board-settings-per-person)), not in a table of their own.

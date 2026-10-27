@@ -80,7 +80,7 @@ export function PriorityChoices({
   currentId: string;
   onPick: (priority: Priority) => void;
 }) {
-  // Highest first, the way people think of "High".
+  // Highest first, the way people think of "Blaze".
   const ordered = [...priorities].sort((a, b) => b.rank - a.rank);
   const first = startAt(ordered.map((priority) => priority.id === currentId));
   return (

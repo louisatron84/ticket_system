@@ -497,7 +497,7 @@ export async function insertDemoTickets(
           actorUserId: user('reviewer'),
           event: {
             type: 'ticket.updated',
-            data: { changes: [{ field: 'priority', from: 'Normal', to: 'High' }] },
+            data: { changes: [{ field: 'priority', from: 'Flame', to: 'Blaze' }] },
           },
           createdAt: at(key(1), 3),
         });

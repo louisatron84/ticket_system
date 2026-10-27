@@ -32,14 +32,14 @@ test.describe('bulk edit from the list', () => {
     await bar(page).getByRole('button', { name: 'Priority…' }).click();
     await page
       .getByRole('group', { name: 'Priority for selected' })
-      .getByRole('button', { name: 'High', exact: true })
+      .getByRole('button', { name: 'Blaze', exact: true })
       .click();
 
     await expect(bar(page)).toContainText('Changed 3 of 3.');
     for (const key of ['WEB-1', 'WEB-2', 'WEB-5']) {
       await expect(
         row(page, key).getByRole('button', { name: `Change priority of ${key}` }),
-      ).toHaveText('High');
+      ).toHaveText('Blaze');
     }
   });
 

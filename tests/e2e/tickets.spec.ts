@@ -28,7 +28,7 @@ test.describe('creating a ticket', () => {
 
     await page.getByLabel('Title').fill('Brand new ticket');
     await page.getByLabel('Description').fill('Steps\nto reproduce');
-    await page.getByLabel('Priority').selectOption({ label: 'High' });
+    await page.getByLabel('Priority').selectOption({ label: 'Blaze' });
     await page.getByRole('button', { name: 'Create ticket' }).click();
 
     await expect(page).toHaveURL(/\/w\/acme\/tickets\/WEB-13$/);
@@ -77,8 +77,8 @@ test.describe('changing a ticket', () => {
     await expect(page.getByRole('heading', { name: 'A better title', level: 1 })).toBeVisible();
     await expect(activity(page)).toContainText('changed the title from');
 
-    await page.getByLabel('Priority').selectOption({ label: 'Critical' });
-    await expect(activity(page)).toContainText('changed the priority from Normal to Critical');
+    await page.getByLabel('Priority').selectOption({ label: 'Inferno' });
+    await expect(activity(page)).toContainText('changed the priority from Flame to Inferno');
 
     await page.getByLabel('Assignee').selectOption({ label: 'Riley Reviewer' });
     await expect(activity(page)).toContainText('Riley Reviewer');
@@ -97,7 +97,7 @@ test.describe('changing a ticket', () => {
     // Everything is still there after a reload.
     await page.reload();
     await expect(page.getByRole('heading', { name: 'A better title', level: 1 })).toBeVisible();
-    await expect(page.getByLabel('Priority').locator('option:checked')).toHaveText('Critical');
+    await expect(page.getByLabel('Priority').locator('option:checked')).toHaveText('Inferno');
     await expect(page.getByLabel('Due date')).toHaveValue('2031-05-01');
   });
 
@@ -109,7 +109,7 @@ test.describe('changing a ticket', () => {
 
     const options = await page.getByLabel('Status').locator('option').allTextContents();
     expect(new Set(options)).toEqual(
-      new Set(['Warming', 'Cold Steel', 'In the Forge', 'Blocked', 'Scrapped']),
+      new Set(['Warming', 'Cold Steel', 'In the Forge', 'Jammed', 'Scrapped']),
     );
     expect(options).not.toContain('Quenched');
     expect(options).not.toContain('Tempering');
@@ -125,7 +125,7 @@ test.describe('changing a ticket', () => {
     const fields = page.getByRole('complementary', { name: 'Ticket fields' });
     await expect(fields.locator('svg[data-heat="tempering"]')).toBeVisible();
 
-    await openTicket(page, 'WEB-7'); // Blocked
+    await openTicket(page, 'WEB-7'); // Jammed
     await expect(fields.locator('svg[data-heat="blocked"]')).toBeVisible();
   });
 
@@ -172,8 +172,8 @@ test.describe('changing a ticket', () => {
     // A second tab saves first.
     const other = await page.context().newPage();
     await openTicket(other, 'WEB-2');
-    await other.getByLabel('Priority').selectOption({ label: 'Critical' });
-    await expect(activity(other)).toContainText('changed the priority from Normal to Critical');
+    await other.getByLabel('Priority').selectOption({ label: 'Inferno' });
+    await expect(activity(other)).toContainText('changed the priority from Flame to Inferno');
     await other.close();
 
     // The first tab still holds the old version.
@@ -185,7 +185,7 @@ test.describe('changing a ticket', () => {
 
     await banner.getByRole('button', { name: 'Reload' }).click();
     await expect(banner).toHaveCount(0);
-    await expect(page.getByLabel('Priority').locator('option:checked')).toHaveText('Critical');
+    await expect(page.getByLabel('Priority').locator('option:checked')).toHaveText('Inferno');
   });
 });
 
@@ -304,12 +304,12 @@ test.describe('the list', () => {
 
     await page.getByRole('button', { name: 'Priority', exact: true }).click();
     // The checkbox follows the address, so it ticks once the navigation has finished.
-    await page.getByRole('checkbox', { name: 'High', exact: true }).click();
+    await page.getByRole('checkbox', { name: 'Blaze', exact: true }).click();
     await expect(page).toHaveURL(/priority=high/);
-    await expect(page.getByRole('button', { name: 'Remove filter Priority: High' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Remove filter Priority: Blaze' })).toBeVisible();
 
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Remove filter Priority: High' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Remove filter Priority: Blaze' })).toBeVisible();
     const rows = page.locator('tbody tr');
     const keysBefore = await rows.locator('th').allTextContents();
     expect(keysBefore.length).toBeGreaterThan(0);
@@ -339,7 +339,7 @@ test.describe('the list', () => {
     await hydrated(page);
     await page.getByRole('link', { name: 'Priority' }).click();
     await expect(page).toHaveURL(/sort=priority/);
-    await expect(page.locator('tbody tr').first()).toContainText('Critical');
+    await expect(page.locator('tbody tr').first()).toContainText('Inferno');
   });
 
   test('says so when nothing matches, and offers the way back', async ({ page }) => {
@@ -367,11 +367,11 @@ test.describe('the list', () => {
     await hydrated(page);
     await page.getByRole('button', { name: 'Views' }).click();
     await page.getByRole('button', { name: 'Save current view' }).click();
-    await page.getByRole('dialog').getByLabel('Name').fill('High work');
+    await page.getByRole('dialog').getByLabel('Name').fill('Blaze work');
     await page.getByRole('button', { name: 'Save view' }).click();
-    await expect(page.getByText('Saved “High work”.')).toBeVisible();
+    await expect(page.getByText('Saved “Blaze work”.')).toBeVisible();
     await page.getByRole('button', { name: 'Views' }).click();
-    await expect(page.getByRole('link', { name: 'High work' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Blaze work' })).toBeVisible();
     await page.keyboard.press('Escape');
 
     await switchTo(page, 'admin');
@@ -390,7 +390,7 @@ test.describe('the list', () => {
     await hydrated(page);
     await page.getByRole('button', { name: 'Views' }).click();
     await expect(page.getByRole('link', { name: 'Team view' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'High work' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Blaze work' })).toHaveCount(0);
 
     // Opening it applies its filters.
     await page.getByRole('link', { name: 'Team view' }).click();
@@ -421,19 +421,19 @@ test.describe('changing a ticket from the list', () => {
     const menu = page.getByRole('group', { name: 'Move WEB-3 to' });
     await expect(menu.getByRole('button')).toHaveText([
       'In the Forge',
-      'Blocked',
+      'Jammed',
       'Quenched',
       'Scrapped',
     ]);
 
-    await menu.getByRole('button', { name: 'Blocked' }).click();
+    await menu.getByRole('button', { name: 'Jammed' }).click();
     await expect(
       row(page, 'WEB-3').getByRole('button', { name: 'Change status of WEB-3' }),
-    ).toHaveText('Blocked');
+    ).toHaveText('Jammed');
     await expect(menu).toHaveCount(0);
 
     await openTicket(page, 'WEB-3');
-    await expect(activity(page)).toContainText('moved this from Tempering to Blocked');
+    await expect(activity(page)).toContainText('moved this from Tempering to Jammed');
   });
 
   test('priority and assignee change the same way, and an assignee can be taken off', async ({
@@ -445,12 +445,12 @@ test.describe('changing a ticket from the list', () => {
     await row(page, 'WEB-3').getByRole('button', { name: 'Change priority of WEB-3' }).click();
     const priorities = page.getByRole('group', { name: 'Priority for WEB-3' });
     // Highest first, with the current one marked.
-    await expect(priorities.getByRole('button').first()).toHaveText('Critical');
-    await expect(priorities.locator('[aria-current="true"]')).toHaveText('Critical');
-    await priorities.getByRole('button', { name: 'Low', exact: true }).click();
+    await expect(priorities.getByRole('button').first()).toHaveText('Inferno');
+    await expect(priorities.locator('[aria-current="true"]')).toHaveText('Inferno');
+    await priorities.getByRole('button', { name: 'Ember', exact: true }).click();
     await expect(
       row(page, 'WEB-3').getByRole('button', { name: 'Change priority of WEB-3' }),
-    ).toHaveText('Low');
+    ).toHaveText('Ember');
 
     await row(page, 'WEB-3').getByRole('button', { name: 'Change assignee of WEB-3' }).click();
     const people = page.getByRole('group', { name: 'Assign WEB-3 to' });
@@ -472,7 +472,7 @@ test.describe('changing a ticket from the list', () => {
     ).toContainText('Unassigned');
 
     await openTicket(page, 'WEB-3');
-    await expect(activity(page)).toContainText('changed the priority from Critical to Low');
+    await expect(activity(page)).toContainText('changed the priority from Inferno to Ember');
     await expect(activity(page)).toContainText(
       'reassigned this from Dana Developer to Riley Reviewer',
     );
@@ -492,7 +492,7 @@ test.describe('changing a ticket from the list', () => {
     const priorities = await page.request.get(`/api/v1/orgs/${acme}/ticket-config`);
     const low = (
       (await priorities.json()) as { priorities: { id: string; name: string }[] }
-    ).priorities.find((priority) => priority.name === 'Low')!;
+    ).priorities.find((priority) => priority.name === 'Ember')!;
     const changed = await page.request.patch(`/api/v1/orgs/${acme}/tickets/WEB-3`, {
       data: { version, priorityId: low.id },
     });
@@ -502,7 +502,7 @@ test.describe('changing a ticket from the list', () => {
     await page
       .getByRole('group', { name: 'Move WEB-3 to' })
       .getByRole('button', {
-        name: 'Blocked',
+        name: 'Jammed',
       })
       .click();
 
@@ -514,7 +514,7 @@ test.describe('changing a ticket from the list', () => {
     // The row now shows what the other person did, and the status was not changed.
     await expect(
       row(page, 'WEB-3').getByRole('button', { name: 'Change priority of WEB-3' }),
-    ).toHaveText('Low');
+    ).toHaveText('Ember');
     await expect(
       row(page, 'WEB-3').getByRole('button', { name: 'Change status of WEB-3' }),
     ).toHaveText('Tempering');
@@ -542,7 +542,7 @@ test.describe('changing a ticket from the list', () => {
       await openList(page);
       const web3 = row(page, 'WEB-3');
       await expect(web3).toContainText('Tempering');
-      await expect(web3).toContainText('Critical');
+      await expect(web3).toContainText('Inferno');
       await expect(web3.getByRole('button')).toHaveCount(0);
     }
   });
