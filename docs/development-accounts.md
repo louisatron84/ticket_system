@@ -40,6 +40,28 @@ All emails use the reserved `.test` domain, so they can never be a real address.
 
 Two workspaces exist: **Acme Robotics** (`acme`) and **Northwind Traders** (`northwind`).
 
+### Demo projects and tickets
+
+The seed also creates tickets so the list and the board have something to show:
+
+| Workspace | Project            | Tickets | Notes                                                                  |
+| --------- | ------------------ | ------- | ---------------------------------------------------------------------- |
+| Acme      | `WEB` Web App      | 12      | Every status used, a few overdue, with labels, components and comments |
+| Acme      | `API` Platform API | 8       |                                                                        |
+| Northwind | `OPS` Operations   | 4       | Visible only to Northwind members (use Nora to check isolation)        |
+
+### What each identity can do with tickets
+
+| Identity      | Look                                               | Create tickets | Edit and assign | Comment      | Create projects and shared views |
+| ------------- | -------------------------------------------------- | -------------- | --------------- | ------------ | -------------------------------- |
+| `owner`       | yes                                                | yes            | yes             | yes          | yes                              |
+| `admin`       | yes                                                | yes            | yes             | yes          | yes                              |
+| `developer`   | yes                                                | yes            | yes             | yes          | no (and read-only in Northwind)  |
+| `reviewer`    | yes                                                | no             | no              | yes          | no                               |
+| `readonly`    | yes                                                | no             | no              | no           | no                               |
+| `restricted`  | no: "You don't have access to projects"            | no             | no              | no           | no                               |
+| `other-owner` | Northwind only; Acme looks as if it does not exist | in Northwind   | in Northwind    | in Northwind | in Northwind                     |
+
 ## Switching
 
 Open the account menu (top right) and use **Development only: switch test account**. The current
@@ -48,7 +70,8 @@ were using and starts a new one, and ends with a full page load, so nothing the 
 could see is left in the browser.
 
 **Reset demo data** in the same menu asks for confirmation, then deletes every record in the
-development database and recreates the seven accounts. It signs you out.
+development database (including projects and tickets you made) and recreates the seven accounts and
+the demo tickets. It signs you out.
 
 ## Why it cannot reach production
 

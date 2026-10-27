@@ -23,6 +23,8 @@ type Props = {
   canComment: boolean;
   /** May delete other people's comments (tickets.edit). */
   canModerate: boolean;
+  /** An archived ticket takes no new comments and no changes to the ones it has. */
+  archived: boolean;
   /** The server's clock, so relative times read the same once hydrated. */
   now: string;
 };
@@ -55,7 +57,9 @@ export function TicketTimeline(props: Props) {
         </ol>
       )}
 
-      {props.canComment ? (
+      {props.archived ? (
+        <p className="text-[13px] text-muted">This ticket is archived, so comments are closed.</p>
+      ) : props.canComment ? (
         <CommentBox organisationId={props.organisationId} ticketKey={props.ticketKey} />
       ) : (
         <p className="text-[13px] text-muted">
@@ -95,6 +99,7 @@ function CommentEntry({
   viewerUserId,
   canComment,
   canModerate,
+  archived,
   now,
 }: Props & { item: CommentItem }) {
   const router = useRouter();
@@ -167,7 +172,7 @@ function CommentEntry({
               </span>
             )}
           </span>
-          {!editing && (
+          {!editing && !archived && (
             <span className="flex shrink-0 items-center gap-0.5">
               {mine && canComment && (
                 <button

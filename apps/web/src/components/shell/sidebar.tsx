@@ -81,7 +81,7 @@ export function Sidebar({
                     'relative flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] transition-colors',
                     active ? 'bg-raised text-text' : 'text-muted hover:bg-raised hover:text-text',
                     active
-                      ? 'before:absolute before:inset-y-1.5 before:-left-2 before:w-0.5 before:rounded-full before:bg-ember before:shadow-[0_0_10px_var(--ember)]'
+                      ? 'before:absolute before:inset-y-1.5 before:-left-2 before:w-0.5 before:rounded-full before:bg-active before:shadow-[0_0_10px_var(--active)]'
                       : '',
                   ].join(' ')}
                 >

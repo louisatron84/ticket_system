@@ -66,16 +66,20 @@ describe('viewTarget', () => {
     expect(href).toBe('/w/acme/projects/WEB/board?label=bug');
   });
 
-  it('falls back to the list when a board view names no project, or several', () => {
-    expect(new URL(viewTarget('acme', view({ display: 'board' })), 'http://x').pathname).toBe(
-      '/w/acme/tickets',
+  it('opens the Tickets board when a board view names no project, or several', () => {
+    const none = new URL(
+      viewTarget('acme', view({ display: 'board', filters: { priority: ['high'] } })),
+      'http://x',
     );
-    expect(
-      new URL(
-        viewTarget('acme', view({ display: 'board', filters: { project: ['WEB', 'API'] } })),
-        'http://x',
-      ).pathname,
-    ).toBe('/w/acme/tickets');
+    expect(none.pathname).toBe('/w/acme/tickets/board');
+    expect(none.searchParams.getAll('priority')).toEqual(['high']);
+
+    const several = new URL(
+      viewTarget('acme', view({ display: 'board', filters: { project: ['WEB', 'API'] } })),
+      'http://x',
+    );
+    expect(several.pathname).toBe('/w/acme/tickets/board');
+    expect(several.searchParams.getAll('project')).toEqual(['WEB', 'API']);
   });
 
   it('encodes an unusual workspace slug', () => {

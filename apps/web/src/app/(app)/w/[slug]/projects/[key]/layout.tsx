@@ -3,7 +3,7 @@ import { Plus } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { ProjectTabs } from '@/components/projects/project-tabs';
+import { ViewTabs } from '@/components/tickets/view-tabs';
 import { NoAccess } from '@/components/workspace/no-access';
 import { workspaceHref } from '@/lib/nav';
 import { getViewer, serverGet } from '@/lib/server/session';
@@ -87,7 +87,7 @@ export default async function ProjectLayout({
         )}
       </header>
 
-      <ProjectTabs basePath={base} />
+      <ViewTabs label="Project views" boardHref={`${base}/board`} listHref={`${base}/list`} />
       {children}
     </div>
   );

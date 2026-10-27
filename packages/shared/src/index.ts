@@ -1,4 +1,5 @@
 export * from './api';
+export * from './board-display';
 export * from './errors';
 export * from './health';
 export * from './http';

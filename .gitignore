@@ -20,3 +20,4 @@ playwright-report/
 # Written by `next dev` (instructions aimed at AI agents); not part of Forge
 apps/web/AGENTS.md
 .next-e2e/
+.next-preview/

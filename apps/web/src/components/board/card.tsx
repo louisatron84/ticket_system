@@ -1,67 +1,96 @@
 'use client';
 
-import type { TicketSummary } from '@forge/shared';
+import {
+  DEFAULT_CARD_FIELDS,
+  type BoardDensity,
+  type CardFields,
+  type TicketSummary,
+} from '@forge/shared';
 import { useDraggable } from '@dnd-kit/core';
-import { GripVertical } from 'lucide-react';
+import { GripVertical, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 import { DueDate, PriorityMark, TypeBadge } from '@/components/tickets/badges';
 import { LabelChips } from '@/components/tickets/label-chip';
 import { UserChip } from '@/components/tickets/user-chip';
 import { workspaceHref } from '@/lib/nav';
-import { MoveMenu, type MoveTarget } from './move-menu';
+import { CardMenu, type CardMenuProps, type MoveTarget } from './card-menu';
 
 type CardProps = {
   ticket: TicketSummary;
   slug: string;
   today: string;
   maxRank: number;
+  /** Which optional parts to show. Key, title and assignee are always there. */
+  fields?: CardFields;
+  /** Compact packs cards tighter: a one-line title and no labels. */
+  density?: BoardDensity;
 };
 
-/** What a card shows: key, title, labels, priority, type, due date, assignee. */
+/**
+ * What a card shows: the key and priority, the number of comments, the title, up to two labels,
+ * the due date, the type and the assignee. Each optional part can be switched off.
+ */
 export function CardBody({
   ticket,
   slug,
   today,
   maxRank,
+  fields = DEFAULT_CARD_FIELDS,
+  density = 'comfortable',
   handle,
   menu,
 }: CardProps & { handle?: React.ReactNode; menu?: React.ReactNode }) {
   const done = ticket.status.category === 'completed';
+  const showDue = fields.dueDate && ticket.dueDate !== null;
+  const compact = density === 'compact';
   return (
-    <div className="flex flex-col gap-2">
+    <div className={`flex min-w-0 flex-col ${compact ? 'gap-1' : 'gap-2'}`}>
       <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1">
+        <span className="flex min-w-0 items-center gap-1.5">
           {handle}
           <span className="font-mono text-xs text-muted">{ticket.key}</span>
+          {fields.priority && <PriorityMark priority={ticket.priority} maxRank={maxRank} compact />}
         </span>
-        {menu}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {fields.comments && ticket.commentCount > 0 && (
+            <span
+              className="inline-flex items-center gap-1 text-xs text-muted"
+              title={`${ticket.commentCount} ${ticket.commentCount === 1 ? 'comment' : 'comments'}`}
+            >
+              <MessageSquare size={12} aria-hidden="true" />
+              <span className="font-mono">{ticket.commentCount}</span>
+              <span className="sr-only">{ticket.commentCount === 1 ? 'comment' : 'comments'}</span>
+            </span>
+          )}
+          {menu}
+        </span>
       </div>
       <Link
         href={workspaceHref(slug, `/tickets/${ticket.key}`)}
-        className="line-clamp-3 break-words text-[13px] font-medium leading-snug hover:underline"
+        className={`${compact ? 'line-clamp-1' : 'line-clamp-3'} min-w-0 break-words text-[13px] font-medium leading-snug hover:underline`}
       >
         {ticket.title}
       </Link>
-      {ticket.labels.length > 0 && <LabelChips labels={ticket.labels} max={2} />}
+      {fields.labels && !compact && ticket.labels.length > 0 && (
+        <LabelChips labels={ticket.labels} max={2} />
+      )}
       <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2.5">
-          <PriorityMark priority={ticket.priority} maxRank={maxRank} compact />
-          <TypeBadge type={ticket.type} iconOnly />
-        </span>
-        <span className="flex min-w-0 items-center gap-2">
-          {ticket.dueDate && (
+        <span className="flex min-w-0 items-center gap-2.5">
+          {showDue && (
             <span className="min-w-0 text-xs">
               <DueDate date={ticket.dueDate} today={today} done={done} />
             </span>
           )}
-          <UserChip person={ticket.assignee} compact />
+          {fields.type && <TypeBadge type={ticket.type} iconOnly />}
         </span>
+        <UserChip person={ticket.assignee} compact />
       </div>
     </div>
   );
 }
 
-const CARD_CLASS = 'rounded-md border border-edge bg-panel p-3';
+const cardClass = (density: BoardDensity | undefined) =>
+  `min-w-0 rounded-md border border-edge bg-panel ${density === 'compact' ? 'p-2' : 'p-3'}`;
 
 /** A card that can be picked up. Dragging starts from the grip, so the title stays a normal link. */
 export function DraggableCard({
@@ -69,14 +98,22 @@ export function DraggableCard({
   slug,
   today,
   maxRank,
+  fields,
+  density,
   canMove,
   targets,
+  actions,
   busy,
   onMove,
 }: CardProps & {
-  /** May this person move cards at all (tickets.edit). Without it there is no grip and no menu. */
+  /** May this person change this card (tickets.edit, project not archived). Without it there is no grip. */
   canMove: boolean;
   targets: MoveTarget[];
+  /** What the card's menu needs besides the card itself. */
+  actions: Pick<
+    CardMenuProps,
+    'organisationId' | 'priorities' | 'members' | 'viewerId' | 'canAssign' | 'canCreate'
+  >;
   /** Another move is waiting for the server. */
   busy: boolean;
   onMove: (statusId: string) => void;
@@ -89,7 +126,7 @@ export function DraggableCard({
   return (
     <li
       ref={setNodeRef}
-      className={`${CARD_CLASS} ${isDragging ? 'opacity-40' : ''}`}
+      className={`${cardClass(density)} ${isDragging ? 'opacity-40' : ''}`}
       data-ticket={ticket.key}
     >
       <CardBody
@@ -97,6 +134,8 @@ export function DraggableCard({
         slug={slug}
         today={today}
         maxRank={maxRank}
+        {...(fields ? { fields } : {})}
+        {...(density ? { density } : {})}
         handle={
           canMove ? (
             <button
@@ -115,9 +154,15 @@ export function DraggableCard({
           ) : undefined
         }
         menu={
-          canMove ? (
-            <MoveMenu ticketKey={ticket.key} targets={targets} disabled={busy} onMove={onMove} />
-          ) : undefined
+          <CardMenu
+            ticket={ticket}
+            slug={slug}
+            targets={targets}
+            canChange={canMove}
+            busy={busy}
+            onMove={onMove}
+            {...actions}
+          />
         }
       />
     </li>
@@ -128,7 +173,7 @@ export function DraggableCard({
 export function CardOverlay(props: CardProps) {
   return (
     <div
-      className={`${CARD_CLASS} w-72 cursor-grabbing border-edge-strong shadow-[0_14px_32px_rgba(0,0,0,0.55)]`}
+      className={`${cardClass(props.density)} w-72 cursor-grabbing border-edge-strong shadow-[0_14px_32px_rgba(0,0,0,0.55)]`}
     >
       <CardBody {...props} />
     </div>

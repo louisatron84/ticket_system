@@ -5,6 +5,7 @@ import {
   DEFAULT_TICKET_TYPES,
   LABEL_COLORS,
   STATUS_CATEGORIES,
+  bulkTicketBodySchema,
   commentBodySchema,
   createComponentBodySchema,
   createLabelBodySchema,
@@ -15,6 +16,7 @@ import {
   hasControlCharacter,
   normalizeProjectKey,
   parseTicketKey,
+  ticketSummarySchema,
   updateProjectBodySchema,
   updateTicketBodySchema,
 } from './tickets';
@@ -120,6 +122,20 @@ describe('default templates', () => {
     ]);
   });
 
+  it('names the statuses after the heat of the work', () => {
+    expect(statuses.map((status) => [status.key, status.name])).toEqual([
+      ['backlog', 'Cold Steel'],
+      ['open', 'Warming'],
+      ['in_progress', 'In the Forge'],
+      ['in_review', 'Tempering'],
+      ['blocked', 'Blocked'],
+      ['done', 'Quenched'],
+      ['cancelled', 'Scrapped'],
+    ]);
+    // Only the words changed: the workflow itself is exactly what it was.
+    expect(transitions).toHaveLength(21);
+  });
+
   it('only connects statuses that exist, never to themselves, with no duplicates', () => {
     const seen = new Set<string>();
     for (const [from, to] of transitions) {
@@ -212,6 +228,10 @@ describe('updateProjectBodySchema', () => {
 describe('createTicketBodySchema', () => {
   it('accepts the smallest valid ticket', () => {
     expect(createTicketBodySchema.safeParse(validTicket).success).toBe(true);
+    expect(createTicketBodySchema.safeParse({ ...validTicket, statusId: uuid }).success).toBe(true);
+    expect(createTicketBodySchema.safeParse({ ...validTicket, statusId: 'open' }).success).toBe(
+      false,
+    );
   });
 
   it('accepts the largest valid ticket', () => {
@@ -300,6 +320,58 @@ describe('updateTicketBodySchema', () => {
   );
 });
 
+describe('bulkTicketBodySchema', () => {
+  const other = '01a1656b-1a49-7146-94ac-1c72df43ddb5';
+  const keys = ['LST-1', 'LST-2'];
+
+  it('needs one to a hundred distinct keys and at least one change', () => {
+    const changes = { archived: true };
+    expect(bulkTicketBodySchema.safeParse({ keys, changes }).success).toBe(true);
+    expect(bulkTicketBodySchema.safeParse({ keys: [], changes }).success).toBe(false);
+    expect(bulkTicketBodySchema.safeParse({ keys: ['LST-1', 'LST-1'], changes }).success).toBe(
+      false,
+    );
+    const many = (n: number) => Array.from({ length: n }, (_, i) => `LST-${i + 1}`);
+    expect(bulkTicketBodySchema.safeParse({ keys: many(100), changes }).success).toBe(true);
+    expect(bulkTicketBodySchema.safeParse({ keys: many(101), changes }).success).toBe(false);
+    expect(bulkTicketBodySchema.safeParse({ keys, changes: {} }).success).toBe(false);
+  });
+
+  it('accepts each kind of change, clearing with null, and nothing else', () => {
+    const changes = {
+      statusKey: 'in_progress',
+      priorityId: uuid,
+      assigneeId: null,
+      addLabelIds: [uuid],
+      removeLabelIds: [other],
+      dueDate: null,
+      archived: false,
+    };
+    expect(bulkTicketBodySchema.safeParse({ keys, changes }).success).toBe(true);
+    // The same label cannot be both added and removed.
+    const both = bulkTicketBodySchema.safeParse({
+      keys,
+      changes: { addLabelIds: [uuid, other], removeLabelIds: [other] },
+    });
+    expect(both.success).toBe(false);
+    expect(both.error?.issues[0]?.path).toEqual(['changes', 'removeLabelIds']);
+    for (const smuggled of [{ title: 'x' }, { statusId: uuid }, { version: 1 }]) {
+      expect(
+        bulkTicketBodySchema.safeParse({ keys, changes: { archived: true, ...smuggled } }).success,
+      ).toBe(false);
+    }
+    expect(
+      bulkTicketBodySchema.safeParse({ keys, changes: { statusKey: 'Not A Key' } }).success,
+    ).toBe(false);
+    expect(
+      bulkTicketBodySchema.safeParse({
+        keys,
+        changes: { addLabelIds: Array.from({ length: 21 }, () => uuid) },
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe('commentBodySchema and createLabelBodySchema', () => {
   it('bounds comments', () => {
     expect(commentBodySchema.safeParse({ body: 'ok' }).success).toBe(true);
@@ -382,5 +454,35 @@ describe('createComponentBodySchema', () => {
     expect(createComponentBodySchema.parse({ name: '<b>مرحبا 👋</b>' }).name).toBe(
       '<b>مرحبا 👋</b>',
     );
+  });
+});
+
+describe('ticket summary', () => {
+  const summary = {
+    id: uuid,
+    key: 'WEB-3',
+    title: 'Checkout page is slow on mobile',
+    project: { id: uuid, key: 'WEB', name: 'Web App' },
+    type: { id: uuid, key: 'bug', name: 'Bug' },
+    status: { id: uuid, key: 'in_review', name: 'Tempering', category: 'in_progress' },
+    priority: { id: uuid, key: 'high', name: 'High', rank: 4 },
+    assignee: null,
+    labels: [],
+    dueDate: null,
+    version: 1,
+    commentCount: 2,
+    createdAt: '2026-10-13T09:00:00.000Z',
+    updatedAt: '2026-10-14T09:00:00.000Z',
+  };
+
+  it('carries a comment count', () => {
+    expect(ticketSummarySchema.parse(summary).commentCount).toBe(2);
+  });
+
+  it('refuses a summary without a comment count, or with a negative or fractional one', () => {
+    const { commentCount: _omitted, ...without } = summary;
+    expect(ticketSummarySchema.safeParse(without).success).toBe(false);
+    expect(ticketSummarySchema.safeParse({ ...summary, commentCount: -1 }).success).toBe(false);
+    expect(ticketSummarySchema.safeParse({ ...summary, commentCount: 1.5 }).success).toBe(false);
   });
 });

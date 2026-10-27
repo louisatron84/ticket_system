@@ -2,14 +2,14 @@ import { z } from 'zod';
 import {
   PROJECT_KEY_PATTERN,
   STATUS_CATEGORIES,
+  STATUS_KEY_PATTERN,
   hasControlCharacter,
   singleLineText,
 } from './tickets';
 
 // Keys for statuses, types and priorities are short lower-case identifiers.
-const KEY_FILTER = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 
-const keyFilter = z.string().regex(KEY_FILTER, 'Not a valid key.');
+const keyFilter = z.string().regex(STATUS_KEY_PATTERN, 'Not a valid key.');
 const projectFilter = z
   .string()
   .transform((value) => value.toUpperCase())

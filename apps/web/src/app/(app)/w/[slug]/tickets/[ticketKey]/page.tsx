@@ -9,7 +9,10 @@ import {
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
+import { TicketCommands } from '@/components/command/ticket-commands';
+import { ArchivedBanner } from '@/components/tickets/archived-banner';
 import { PriorityMark, StatusBadge, TypeBadge } from '@/components/tickets/badges';
+import { TicketActionsMenu } from '@/components/tickets/ticket-actions-menu';
 import { TicketEditorProvider } from '@/components/tickets/ticket-editor';
 import { TicketFields } from '@/components/tickets/ticket-fields';
 import { TicketDescription, TicketTitle } from '@/components/tickets/ticket-text';
@@ -74,6 +77,7 @@ export default async function TicketPage({
   if (!ticket.ok || !timeline.ok || !config.ok) notFound();
 
   const now = new Date();
+  const archived = ticket.data.archivedAt !== null;
   const maxRank = Math.max(1, ...config.data.priorities.map((priority) => priority.rank));
 
   return (
@@ -82,7 +86,21 @@ export default async function TicketPage({
       organisationId={membership.organisation.id}
       permissions={membership.permissions}
     >
+      <TicketCommands
+        organisationId={membership.organisation.id}
+        slug={membership.organisation.slug}
+        viewerId={viewer.user.id}
+        canArchive={permissions.canEdit}
+        canCreate={permissions.canCreate}
+      />
       <div className="flex flex-col gap-5">
+        {archived && (
+          <ArchivedBanner
+            organisationId={membership.organisation.id}
+            ticketKey={ticket.data.key}
+            canEdit={permissions.canEdit}
+          />
+        )}
         <header className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
             <span className="font-mono text-xs text-muted">{ticket.data.key}</span>
@@ -96,6 +114,15 @@ export default async function TicketPage({
             >
               {ticket.data.project.name}
             </Link>
+            <div className="ml-auto">
+              <TicketActionsMenu
+                organisationId={membership.organisation.id}
+                slug={membership.organisation.slug}
+                ticket={{ key: ticket.data.key, title: ticket.data.title, archived }}
+                canEdit={permissions.canEdit}
+                canCreate={permissions.canCreate}
+              />
+            </div>
           </div>
           <TicketTitle />
           {/* On a narrow screen the fields are far below, so the essentials sit under the title. */}
@@ -116,6 +143,7 @@ export default async function TicketPage({
               viewerUserId={viewer.user.id}
               canComment={permissions.canComment}
               canModerate={permissions.canEdit}
+              archived={archived}
               now={now.toISOString()}
             />
           </div>

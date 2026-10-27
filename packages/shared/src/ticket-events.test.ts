@@ -87,6 +87,14 @@ describe('describeTicketEvent', () => {
     );
   });
 
+  it('describes archiving, unarchiving and duplicating', () => {
+    expect(describeAs({ type: 'ticket.archived', data: {} })).toBe('Dana archived this ticket');
+    expect(describeAs({ type: 'ticket.unarchived', data: {} })).toBe('Dana unarchived this ticket');
+    expect(describeAs({ type: 'ticket.duplicated', data: { fromKey: 'WEB-3' } })).toBe(
+      'Dana duplicated this from WEB-3',
+    );
+  });
+
   it('returns hostile names verbatim: escaping is the renderer’s job', () => {
     expect(
       describeAs(
@@ -111,5 +119,17 @@ describe('ticketEventSchema', () => {
       }).success,
     ).toBe(true);
     expect(ticketEventSchema.safeParse({ type: 'ticket.exploded', data: {} }).success).toBe(false);
+  });
+
+  it('accepts the archive and duplicate events, and a duplicate needs its source key', () => {
+    expect(ticketEventSchema.safeParse({ type: 'ticket.archived', data: {} }).success).toBe(true);
+    expect(ticketEventSchema.safeParse({ type: 'ticket.unarchived', data: {} }).success).toBe(true);
+    expect(
+      ticketEventSchema.safeParse({ type: 'ticket.duplicated', data: { fromKey: 'WEB-3' } })
+        .success,
+    ).toBe(true);
+    expect(ticketEventSchema.safeParse({ type: 'ticket.duplicated', data: {} }).success).toBe(
+      false,
+    );
   });
 });

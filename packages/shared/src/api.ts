@@ -1,8 +1,13 @@
 import { z } from 'zod';
+import { boardColumnPrefsSchema, boardColumnsSchema, boardDisplaySchema } from './board-display';
 import { permissionSchema } from './permissions';
 
 export const preferencesSchema = z.strictObject({
   sidebarCollapsed: z.boolean().optional(),
+  board: boardDisplaySchema.optional(),
+  boardColumns: boardColumnsSchema.optional(),
+  /** The column choice for the Tickets page's board, which spans projects. Null resets it. */
+  ticketsBoardColumns: boardColumnPrefsSchema.nullable().optional(),
 });
 export type Preferences = z.infer<typeof preferencesSchema>;
 

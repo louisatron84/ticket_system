@@ -1,21 +1,5 @@
-import type { StatusCategory } from '@forge/shared';
-
 // Pure helpers for how tickets are shown. Nothing here touches the network, the clock or the
 // browser, so dates are always compared against a "today" the caller passes in.
-
-export type StatusTone = 'idle' | 'active' | 'done';
-
-/** Which of the three looks a status category gets. */
-export function statusTone(category: StatusCategory): StatusTone {
-  switch (category) {
-    case 'not_started':
-      return 'idle';
-    case 'in_progress':
-      return 'active';
-    case 'completed':
-      return 'done';
-  }
-}
 
 const PRIORITY_BARS = 5;
 

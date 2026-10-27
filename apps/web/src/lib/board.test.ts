@@ -1,6 +1,16 @@
-import type { Board, TicketSummary } from '@forge/shared';
+import type { TicketSummary, Workflow } from '@forge/shared';
 import { describe, expect, it } from 'vitest';
-import { allowedTargets, boardReducer, canDrop, nextBoardState, type BoardState } from './board';
+import {
+  allowedStatuses,
+  boardReducer,
+  canMoveTo,
+  isMovable,
+  nextBoardState,
+  statusesAcross,
+  type BoardData,
+  type BoardState,
+  type StatusRef,
+} from './board';
 
 const uuid = (n: number) => `01a1656b-1a49-7146-94ac-${String(n).padStart(12, '0')}`;
 
@@ -9,40 +19,81 @@ const status = (
   key: string,
   name: string,
   category: 'not_started' | 'in_progress' | 'completed',
-) => ({
-  id: uuid(n),
-  key,
-  name,
-  category,
-  sortOrder: n,
-  initial: n === 1,
-});
+): StatusRef => ({ id: uuid(n), key, name, category });
 
+// Project WEB has open, doing and done. Project API has its own open and a "qa" status WEB lacks.
 const OPEN = status(1, 'open', 'Open', 'not_started');
 const DOING = status(2, 'doing', 'In Progress', 'in_progress');
 const DONE = status(3, 'done', 'Done', 'completed');
+const API_OPEN = status(11, 'open', 'Ready', 'not_started');
+const API_QA = status(12, 'qa', 'QA', 'in_progress');
 
-const ticket = (n: number, from: typeof OPEN): TicketSummary => ({
+const WEB = { id: uuid(900), key: 'WEB' };
+const API = { id: uuid(950), key: 'API' };
+
+const workflow = (
+  project: { id: string; key: string },
+  statuses: StatusRef[],
+  moves: [StatusRef, StatusRef][],
+  archived = false,
+): Workflow => ({
+  projectId: project.id,
+  projectKey: project.key,
+  archived,
+  statuses,
+  transitions: moves.map(([from, to]) => ({ fromStatusId: from.id, toStatusId: to.id })),
+});
+
+const WORKFLOWS: Workflow[] = [
+  workflow(
+    WEB,
+    [OPEN, DOING, DONE],
+    [
+      [OPEN, DOING],
+      [DOING, DONE],
+      [DOING, OPEN],
+    ],
+  ),
+  workflow(API, [API_OPEN, API_QA], [[API_OPEN, API_QA]]),
+];
+
+const ticket = (
+  n: number,
+  from: StatusRef,
+  project: { id: string; key: string } = WEB,
+): TicketSummary => ({
   id: uuid(100 + n),
-  key: `WEB-${n}`,
+  key: `${project.key}-${n}`,
   title: `Ticket ${n}`,
-  project: { id: uuid(900), key: 'WEB', name: 'Web' },
+  project: { ...project, name: project.key },
   type: { id: uuid(901), key: 'task', name: 'Task' },
-  status: { id: from.id, key: from.key, name: from.name, category: from.category },
+  status: from,
   priority: { id: uuid(902), key: 'normal', name: 'Normal', rank: 3 },
   assignee: null,
   labels: [],
   dueDate: null,
   version: 1,
+  commentCount: 0,
   createdAt: '2030-01-01T00:00:00.000Z',
   updatedAt: '2030-01-01T00:00:00.000Z',
 });
 
-const fixture = (): Board => ({
+const column = (key: string, name: string, sortOrder: number) => ({
+  key,
+  name,
+  category: 'not_started' as const,
+  sortOrder,
+});
+
+const fixture = (): BoardData => ({
   columns: [
-    { status: OPEN, total: 2, tickets: [ticket(1, OPEN), ticket(2, OPEN)] },
-    { status: DOING, total: 1, tickets: [ticket(3, DOING)] },
-    { status: DONE, total: 0, tickets: [] },
+    {
+      status: column('open', 'Open', 1),
+      total: 3,
+      tickets: [ticket(1, OPEN), ticket(2, OPEN), ticket(4, API_OPEN, API)],
+    },
+    { status: column('doing', 'In Progress', 2), total: 1, tickets: [ticket(3, DOING)] },
+    { status: column('done', 'Done', 3), total: 0, tickets: [] },
   ],
 });
 
@@ -54,143 +105,133 @@ const deepFreeze = <T>(value: T): T => {
   return value;
 };
 
-const keysIn = (board: Board, column: number) => board.columns[column]!.tickets.map((t) => t.key);
+const keysIn = (board: BoardData, index: number) => board.columns[index]!.tickets.map((t) => t.key);
 
 describe('nextBoardState', () => {
-  it('moves a card to the top of another column', () => {
-    const next = nextBoardState(fixture(), uuid(101), DOING.id);
-    expect(keysIn(next, 0)).toEqual(['WEB-2']);
+  it('moves a card to the top of the column with that key', () => {
+    const next = nextBoardState(fixture(), uuid(101), 'doing', DOING);
+    expect(keysIn(next, 0)).toEqual(['WEB-2', 'API-4']);
     expect(keysIn(next, 1)).toEqual(['WEB-1', 'WEB-3']);
   });
 
   it('updates both counts', () => {
-    const next = nextBoardState(fixture(), uuid(101), DOING.id);
-    expect(next.columns.map((column) => column.total)).toEqual([1, 2, 0]);
+    const next = nextBoardState(fixture(), uuid(101), 'doing', DOING);
+    expect(next.columns.map((c) => c.total)).toEqual([2, 2, 0]);
   });
 
-  it('gives the moved card its new status', () => {
-    const next = nextBoardState(fixture(), uuid(101), DONE.id);
-    expect(next.columns[2]!.tickets[0]!.status).toEqual({
-      id: DONE.id,
-      key: 'done',
-      name: 'Done',
-      category: 'completed',
-    });
+  it('gives the moved card the status it was given', () => {
+    const next = nextBoardState(fixture(), uuid(101), 'done', DONE);
+    expect(next.columns[2]!.tickets[0]!.status).toEqual(DONE);
   });
 
   it('leaves the columns it did not touch exactly as they were', () => {
     const board = fixture();
-    const next = nextBoardState(board, uuid(101), DOING.id);
-    expect(next.columns[2]).toBe(board.columns[2]);
+    expect(nextBoardState(board, uuid(101), 'doing', DOING).columns[2]).toBe(board.columns[2]);
   });
 
   it('counts against the real total when a column shows only part of its tickets', () => {
     const board = fixture();
-    board.columns[0] = { status: OPEN, total: 58, tickets: [ticket(1, OPEN), ticket(2, OPEN)] };
-    const next = nextBoardState(board, uuid(101), DOING.id);
+    board.columns[0] = { ...board.columns[0]!, total: 58 };
+    const next = nextBoardState(board, uuid(101), 'doing', DOING);
     expect(next.columns[0]!.total).toBe(57);
     expect(next.columns[1]!.total).toBe(2);
   });
 
   it('never counts below zero', () => {
     const board = fixture();
-    board.columns[1] = { status: DOING, total: 0, tickets: [ticket(3, DOING)] };
-    expect(nextBoardState(board, uuid(103), DONE.id).columns[1]!.total).toBe(0);
+    board.columns[1] = { ...board.columns[1]!, total: 0 };
+    expect(nextBoardState(board, uuid(103), 'done', DONE).columns[1]!.total).toBe(0);
   });
 
   it('returns the very same board for a move that changes nothing', () => {
     const board = fixture();
-    expect(nextBoardState(board, uuid(101), OPEN.id)).toBe(board);
-    expect(nextBoardState(board, uuid(777), DOING.id)).toBe(board);
-    expect(nextBoardState(board, uuid(101), uuid(888))).toBe(board);
+    expect(nextBoardState(board, uuid(101), 'open', OPEN)).toBe(board);
+    expect(nextBoardState(board, uuid(777), 'doing', DOING)).toBe(board);
+    expect(nextBoardState(board, uuid(101), 'nowhere', DOING)).toBe(board);
   });
 
   it('does not change the board it was given', () => {
     const board = deepFreeze(fixture());
-    expect(() => nextBoardState(board, uuid(101), DONE.id)).not.toThrow();
+    expect(() => nextBoardState(board, uuid(101), 'done', DONE)).not.toThrow();
   });
 });
 
-describe('allowedTargets and canDrop', () => {
-  const transitions = [
-    { fromStatusId: OPEN.id, toStatusId: DOING.id },
-    { fromStatusId: DOING.id, toStatusId: DONE.id },
-    { fromStatusId: DOING.id, toStatusId: OPEN.id },
-  ];
-
-  it('lists where a status may go', () => {
-    expect(allowedTargets(transitions, OPEN.id)).toEqual([DOING.id]);
-    expect([...allowedTargets(transitions, DOING.id)].sort()).toEqual([OPEN.id, DONE.id].sort());
-    expect(allowedTargets(transitions, DONE.id)).toEqual([]);
+describe('moves are checked against the ticket’s own project', () => {
+  it('lists only the statuses its own project allows', () => {
+    expect(allowedStatuses(WORKFLOWS, ticket(1, OPEN))).toEqual([DOING]);
+    expect(allowedStatuses(WORKFLOWS, ticket(3, DOING))).toEqual([OPEN, DONE]);
+    expect(allowedStatuses(WORKFLOWS, ticket(4, API_OPEN, API))).toEqual([API_QA]);
+    expect(allowedStatuses(WORKFLOWS, ticket(5, DONE))).toEqual([]);
   });
 
-  it('accepts a drop only on a column the card may move to', () => {
-    const allowed = allowedTargets(transitions, OPEN.id);
-    expect(canDrop(allowed, DOING.id)).toBe(true);
-    expect(canDrop(allowed, DONE.id)).toBe(false);
+  it('resolves a column key to that project’s own status', () => {
+    expect(canMoveTo(WORKFLOWS, ticket(1, OPEN), 'doing')).toEqual(DOING);
+    expect(canMoveTo(WORKFLOWS, ticket(4, API_OPEN, API), 'qa')).toEqual(API_QA);
   });
 
-  it('never accepts a drop on the column the card is already in', () => {
-    expect(canDrop(allowedTargets(transitions, DOING.id), DOING.id)).toBe(false);
+  it('refuses a key the workflow does not allow, or the one it is already in', () => {
+    expect(canMoveTo(WORKFLOWS, ticket(1, OPEN), 'done')).toBeNull();
+    expect(canMoveTo(WORKFLOWS, ticket(1, OPEN), 'open')).toBeNull();
   });
 
-  it('accepts nothing when there is nowhere to go', () => {
-    expect(canDrop([], DOING.id)).toBe(false);
+  it('refuses a key its project does not have', () => {
+    expect(canMoveTo(WORKFLOWS, ticket(3, DOING), 'qa')).toBeNull();
+    expect(canMoveTo(WORKFLOWS, ticket(4, API_OPEN, API), 'doing')).toBeNull();
+  });
+
+  it('refuses every move in an archived project, and for a project it does not know', () => {
+    const archived = [WORKFLOWS[0]!, { ...WORKFLOWS[1]!, archived: true }];
+    expect(canMoveTo(archived, ticket(4, API_OPEN, API), 'qa')).toBeNull();
+    expect(isMovable(archived, ticket(4, API_OPEN, API))).toBe(false);
+    expect(isMovable(archived, ticket(1, OPEN))).toBe(true);
+    const stranger = ticket(6, OPEN, { id: uuid(999), key: 'ZZZ' });
+    expect(isMovable(WORKFLOWS, stranger)).toBe(false);
+    expect(canMoveTo(WORKFLOWS, stranger, 'doing')).toBeNull();
   });
 });
 
 describe('boardReducer', () => {
   const start = (): BoardState => ({ board: fixture(), pending: null });
+  const moveWeb1 = { type: 'moved', ticketId: uuid(101), toKey: 'doing', status: DOING } as const;
 
   it('applies a move at once and remembers how to undo it', () => {
     const before = start();
-    const after = boardReducer(before, {
-      type: 'moved',
-      ticketId: uuid(101),
-      toStatusId: DOING.id,
-    });
+    const after = boardReducer(before, moveWeb1);
     expect(keysIn(after.board, 1)).toEqual(['WEB-1', 'WEB-3']);
     expect(after.pending).toEqual({ ticketId: uuid(101), snapshot: before.board });
   });
 
   it('puts the board back exactly as it was when the move is refused', () => {
     const before = start();
-    const moved = boardReducer(before, {
-      type: 'moved',
-      ticketId: uuid(101),
-      toStatusId: DOING.id,
-    });
-    const undone = boardReducer(moved, { type: 'rejected' });
+    const undone = boardReducer(boardReducer(before, moveWeb1), { type: 'rejected' });
     expect(undone.board).toBe(before.board);
     expect(undone.pending).toBeNull();
   });
 
   it('keeps the move and records the new version when it is saved', () => {
-    const moved = boardReducer(start(), {
-      type: 'moved',
-      ticketId: uuid(101),
-      toStatusId: DOING.id,
-    });
+    const moved = boardReducer(start(), moveWeb1);
     const saved = boardReducer(moved, { type: 'saved', ticketId: uuid(101), version: 2 });
     expect(saved.pending).toBeNull();
     expect(saved.board.columns[1]!.tickets[0]).toMatchObject({ key: 'WEB-1', version: 2 });
-    expect(keysIn(saved.board, 0)).toEqual(['WEB-2']);
+    expect(keysIn(saved.board, 0)).toEqual(['WEB-2', 'API-4']);
   });
 
   it('does not start a second move while one is waiting for the server', () => {
-    const moved = boardReducer(start(), {
+    const moved = boardReducer(start(), moveWeb1);
+    const again = boardReducer(moved, {
       type: 'moved',
-      ticketId: uuid(101),
-      toStatusId: DOING.id,
+      ticketId: uuid(102),
+      toKey: 'done',
+      status: DONE,
     });
-    const again = boardReducer(moved, { type: 'moved', ticketId: uuid(102), toStatusId: DONE.id });
     expect(again).toBe(moved);
   });
 
   it('ignores a move that changes nothing, leaving nothing to undo', () => {
     const before = start();
-    const same = boardReducer(before, { type: 'moved', ticketId: uuid(101), toStatusId: OPEN.id });
-    expect(same).toBe(before);
+    expect(
+      boardReducer(before, { type: 'moved', ticketId: uuid(101), toKey: 'open', status: OPEN }),
+    ).toBe(before);
   });
 
   it('ignores a rejection when nothing is pending', () => {
@@ -199,13 +240,27 @@ describe('boardReducer', () => {
   });
 
   it('takes the server’s board when a fresh one arrives, dropping anything pending', () => {
-    const moved = boardReducer(start(), {
-      type: 'moved',
-      ticketId: uuid(101),
-      toStatusId: DOING.id,
-    });
     const fresh = fixture();
-    const replaced = boardReducer(moved, { type: 'replaced', board: fresh });
+    const replaced = boardReducer(boardReducer(start(), moveWeb1), {
+      type: 'replaced',
+      board: fresh,
+    });
     expect(replaced).toEqual({ board: fresh, pending: null });
+  });
+});
+
+describe('statusesAcross', () => {
+  it('lists each status key once, named after the first project that has it, in workflow order', () => {
+    expect(statusesAcross(WORKFLOWS)).toEqual([
+      { id: 'open', key: 'open', name: 'Open', category: 'not_started' },
+      { id: 'doing', key: 'doing', name: 'In Progress', category: 'in_progress' },
+      { id: 'done', key: 'done', name: 'Done', category: 'completed' },
+      { id: 'qa', key: 'qa', name: 'QA', category: 'in_progress' },
+    ]);
+  });
+
+  it('leaves out archived projects', () => {
+    const archived = [WORKFLOWS[0]!, { ...WORKFLOWS[1]!, archived: true }];
+    expect(statusesAcross(archived).map((status) => status.key)).toEqual(['open', 'doing', 'done']);
   });
 });

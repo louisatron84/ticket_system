@@ -10,7 +10,7 @@ import {
 import { hasPermission, ticketEventSchema, type Comment, type TimelineItem } from '@forge/shared';
 import { and, asc, eq, notInArray } from 'drizzle-orm';
 import { AppError } from '../errors';
-import type { TicketContext } from './service';
+import { archivedTicketError, type TicketContext } from './service';
 
 const notFound = () => new AppError('not_found', 'Not found.', 404);
 
@@ -25,6 +25,25 @@ async function ticketIdOf(
     .from(tickets)
     .where(and(eq(tickets.organisationId, organisationId), eq(tickets.key, ticketKey)));
   if (!ticket) throw notFound();
+  return ticket.id;
+}
+
+/**
+ * Like `ticketIdOf`, for changing a ticket's comments: an archived ticket is refused. The ticket
+ * row is share-locked, so an archive in flight finishes first and this sees its result.
+ */
+async function editableTicketIdOf(
+  executor: Executor,
+  organisationId: string,
+  ticketKey: string,
+): Promise<string> {
+  const [ticket] = await executor
+    .select({ id: tickets.id, archivedAt: tickets.archivedAt })
+    .from(tickets)
+    .where(and(eq(tickets.organisationId, organisationId), eq(tickets.key, ticketKey)))
+    .for('share');
+  if (!ticket) throw notFound();
+  if (ticket.archivedAt) throw archivedTicketError();
   return ticket.id;
 }
 
@@ -86,7 +105,7 @@ export async function addComment(
 ): Promise<Comment> {
   const { context } = input;
   return db.transaction(async (tx) => {
-    const ticketId = await ticketIdOf(tx, context.organisationId, input.ticketKey);
+    const ticketId = await editableTicketIdOf(tx, context.organisationId, input.ticketKey);
     const [created] = await tx
       .insert(ticketComments)
       .values({
@@ -112,7 +131,7 @@ export async function editComment(
 ): Promise<Comment> {
   const { context } = input;
   return db.transaction(async (tx) => {
-    const ticketId = await ticketIdOf(tx, context.organisationId, input.ticketKey);
+    const ticketId = await editableTicketIdOf(tx, context.organisationId, input.ticketKey);
     const current = await loadComment(tx, context.organisationId, ticketId, input.commentId, true);
 
     // Only the author edits their own words, whatever else their role allows.
@@ -142,7 +161,7 @@ export async function deleteComment(
 ): Promise<void> {
   const { context } = input;
   await db.transaction(async (tx) => {
-    const ticketId = await ticketIdOf(tx, context.organisationId, input.ticketKey);
+    const ticketId = await editableTicketIdOf(tx, context.organisationId, input.ticketKey);
     const current = await loadComment(tx, context.organisationId, ticketId, input.commentId, true);
 
     const mayDelete =

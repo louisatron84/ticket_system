@@ -1,10 +1,14 @@
 import { z } from 'zod';
+import { ERROR_CODES } from './errors';
 
 // ---------------------------------------------------------------------------
 // Keys
 // ---------------------------------------------------------------------------
 
 export const PROJECT_KEY_PATTERN = /^[A-Z][A-Z0-9]{1,9}$/;
+
+/** A status's key: a short lower-case identifier such as in_progress. */
+export const STATUS_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 
 // Checked on the raw input, in ASCII only. Upper-casing first would let characters such as "ß"
 // turn into letters that were never typed.
@@ -75,13 +79,13 @@ export const DEFAULT_STATUS_TEMPLATE: {
   transitions: [from: string, to: string][];
 } = {
   statuses: [
-    { key: 'backlog', name: 'Backlog', category: 'not_started', initial: true },
-    { key: 'open', name: 'Open', category: 'not_started' },
-    { key: 'in_progress', name: 'In Progress', category: 'in_progress' },
-    { key: 'in_review', name: 'In Review', category: 'in_progress' },
+    { key: 'backlog', name: 'Cold Steel', category: 'not_started', initial: true },
+    { key: 'open', name: 'Warming', category: 'not_started' },
+    { key: 'in_progress', name: 'In the Forge', category: 'in_progress' },
+    { key: 'in_review', name: 'Tempering', category: 'in_progress' },
     { key: 'blocked', name: 'Blocked', category: 'in_progress' },
-    { key: 'done', name: 'Done', category: 'completed' },
-    { key: 'cancelled', name: 'Cancelled', category: 'completed' },
+    { key: 'done', name: 'Quenched', category: 'completed' },
+    { key: 'cancelled', name: 'Scrapped', category: 'completed' },
   ],
   transitions: [
     ['backlog', 'open'],
@@ -201,6 +205,8 @@ export const createTicketBodySchema = z.strictObject({
   description: ticketFields.description.optional(),
   typeId: ticketFields.typeId,
   priorityId: ticketFields.priorityId,
+  /** Any active status of the project; left out, the ticket starts in the initial status. */
+  statusId: z.uuid().optional(),
   assigneeId: ticketFields.assigneeId.optional(),
   componentId: ticketFields.componentId.optional(),
   labelIds: ticketFields.labelIds.optional(),
@@ -226,6 +232,35 @@ export const updateTicketBodySchema = z
   })
   .refine((body) => Object.keys(body).some((key) => key !== 'version'), 'Nothing to change.');
 export type UpdateTicketBody = z.infer<typeof updateTicketBodySchema>;
+
+/**
+ * One change applied to up to 100 tickets as they are now. `statusKey` is a status key, because
+ * the tickets may belong to different projects; each is moved to its own project's status of that
+ * key.
+ */
+export const bulkTicketBodySchema = z.strictObject({
+  keys: z
+    .array(z.string().min(1).max(40))
+    .min(1)
+    .max(100)
+    .refine((keys) => new Set(keys).size === keys.length, 'Each ticket may be listed only once.'),
+  changes: z
+    .strictObject({
+      statusKey: z.string().regex(STATUS_KEY_PATTERN).optional(),
+      priorityId: ticketFields.priorityId.optional(),
+      assigneeId: ticketFields.assigneeId.optional(),
+      addLabelIds: ticketFields.labelIds.optional(),
+      removeLabelIds: ticketFields.labelIds.optional(),
+      dueDate: ticketFields.dueDate.optional(),
+      archived: z.boolean().optional(),
+    })
+    .refine((changes) => Object.keys(changes).length > 0, 'Nothing to change.')
+    .refine((changes) => !changes.addLabelIds?.some((id) => changes.removeLabelIds?.includes(id)), {
+      message: 'A label cannot be both added and removed.',
+      path: ['removeLabelIds'],
+    }),
+});
+export type BulkTicketBody = z.infer<typeof bulkTicketBodySchema>;
 
 export const commentBodySchema = z.strictObject({
   body: z
@@ -322,10 +357,27 @@ export const ticketSummarySchema = z.object({
   dueDate: z.string().nullable(),
   /** So a move or edit made from a row or a board card can be checked for staleness. */
   version: z.number().int().min(1),
+  /** How many comments the ticket has, so a card can show it without loading the timeline. */
+  commentCount: z.number().int().nonnegative(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 export type TicketSummary = z.infer<typeof ticketSummarySchema>;
+
+/** What happened to each ticket of a bulk edit, in the order the keys were sent. */
+export const bulkTicketResultSchema = z.object({
+  results: z.array(
+    z.discriminatedUnion('ok', [
+      z.object({ key: z.string(), ok: z.literal(true), ticket: ticketSummarySchema }),
+      z.object({
+        key: z.string(),
+        ok: z.literal(false),
+        error: z.object({ code: z.enum(ERROR_CODES), message: z.string() }),
+      }),
+    ]),
+  ),
+});
+export type BulkTicketResult = z.infer<typeof bulkTicketResultSchema>;
 
 export const ticketDetailSchema = ticketSummarySchema.extend({
   description: z.string(),
@@ -359,6 +411,32 @@ export const boardSchema = z.object({
   ),
 });
 export type Board = z.infer<typeof boardSchema>;
+
+/** One project's statuses and the moves between them, so a move can be checked before it is sent. */
+export const workflowSchema = z.object({
+  projectId: z.uuid(),
+  projectKey: z.string(),
+  archived: z.boolean(),
+  statuses: z.array(statusSchema.pick({ id: true, key: true, name: true, category: true })),
+  transitions: z.array(z.object({ fromStatusId: z.uuid(), toStatusId: z.uuid() })),
+});
+export type Workflow = z.infer<typeof workflowSchema>;
+
+/**
+ * Every project's tickets on one board. A column is a status key, so it can hold tickets of several
+ * projects; each ticket still moves under its own project's workflow.
+ */
+export const workspaceBoardSchema = z.object({
+  columns: z.array(
+    z.object({
+      status: statusSchema.pick({ key: true, name: true, category: true, sortOrder: true }),
+      total: z.number().int().nonnegative(),
+      tickets: z.array(ticketSummarySchema),
+    }),
+  ),
+  workflows: z.array(workflowSchema),
+});
+export type WorkspaceBoard = z.infer<typeof workspaceBoardSchema>;
 
 export const commentSchema = z.object({
   id: z.uuid(),

@@ -39,6 +39,10 @@ type Issue = { path: string; message: string };
 
 const notFound = () => new AppError('not_found', 'Not found.', 404);
 
+/** Archived tickets are read-only: every change to one, or to its comments, answers with this. */
+export const archivedTicketError = () =>
+  new AppError('conflict', 'This ticket is archived. Unarchive it to change it.', 409);
+
 function invalid(issues: Issue[]): AppError {
   return new AppError(
     'validation_failed',
@@ -171,6 +175,21 @@ export async function createTicket(
       }
 
       const issues = await findReferenceIssues(tx, context.organisationId, project.id, body);
+      if (body.statusId !== undefined) {
+        // Any active status of this project may be chosen; the workflow governs moves, not creation.
+        const [status] = await tx
+          .select({ id: projectStatuses.id })
+          .from(projectStatuses)
+          .where(
+            and(
+              eq(projectStatuses.id, body.statusId),
+              eq(projectStatuses.organisationId, context.organisationId),
+              eq(projectStatuses.projectId, project.id),
+              eq(projectStatuses.isActive, true),
+            ),
+          );
+        if (!status) issues.push({ path: 'statusId', message: 'Unknown status.' });
+      }
       if (issues.length > 0) throw invalid(issues);
 
       const created = await createTicketRow(tx, {
@@ -181,6 +200,7 @@ export async function createTicket(
         description: body.description ?? '',
         typeId: body.typeId,
         priorityId: body.priorityId,
+        statusId: body.statusId,
         assigneeId: body.assigneeId ?? null,
         componentId: body.componentId ?? null,
         dueDate: body.dueDate ?? null,
@@ -221,6 +241,7 @@ export async function updateTicket(
         .where(and(eq(tickets.organisationId, context.organisationId), eq(tickets.key, ticketKey)))
         .for('update');
       if (!row) throw notFound();
+      if (row.archivedAt) throw archivedTicketError();
 
       if (body.version !== row.version) {
         throw new AppError(
@@ -423,4 +444,125 @@ export async function updateTicket(
     }
     throw error;
   }
+}
+
+/**
+ * Archives or unarchives a ticket. Asking for the state it is already in changes nothing: no new
+ * version, no history line.
+ */
+export async function setArchived(
+  db: Db,
+  input: { context: TicketContext; ticketKey: string; archived: boolean },
+): Promise<TicketDetail> {
+  const { context, ticketKey, archived } = input;
+
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(tickets)
+      .where(and(eq(tickets.organisationId, context.organisationId), eq(tickets.key, ticketKey)))
+      .for('update');
+    if (!row) throw notFound();
+
+    const now = new Date();
+    if (archived !== (row.archivedAt !== null)) {
+      await tx
+        .update(tickets)
+        .set({
+          archivedAt: archived ? now : null,
+          version: sql`${tickets.version} + 1`,
+          updatedAt: now,
+        })
+        .where(eq(tickets.id, row.id));
+      await addTicketEvent(tx, {
+        organisationId: context.organisationId,
+        ticketId: row.id,
+        actorUserId: context.actorUserId,
+        event: { type: archived ? 'ticket.archived' : 'ticket.unarchived', data: {} },
+        createdAt: now,
+      });
+    }
+
+    const detail = await loadTicketDetail(tx, context.organisationId, ticketKey);
+    if (!detail) throw new Error('A ticket that was just updated could not be read back');
+    return detail;
+  });
+}
+
+const TITLE_LIMIT = 200;
+
+/** "Copy of <title>" within the title limit, never ending in half of a surrogate pair. */
+function copyTitle(title: string): string {
+  const cut = `Copy of ${title}`.slice(0, TITLE_LIMIT);
+  const last = cut.charCodeAt(cut.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
+}
+
+/**
+ * Makes a new ticket in the same project from an existing one: the same fields and labels, the
+ * project's initial status, the actor as reporter. Comments and history stay behind. The assignee
+ * is copied only when the actor may assign.
+ */
+export async function duplicateTicket(
+  db: Db,
+  input: { context: TicketContext; ticketKey: string },
+): Promise<TicketDetail> {
+  const { context, ticketKey } = input;
+
+  return db.transaction(async (tx) => {
+    const [source] = await tx
+      .select()
+      .from(tickets)
+      .where(and(eq(tickets.organisationId, context.organisationId), eq(tickets.key, ticketKey)));
+    if (!source) throw notFound();
+
+    const [project] = await tx
+      .select({ archivedAt: projects.archivedAt })
+      .from(projects)
+      .where(
+        and(eq(projects.organisationId, context.organisationId), eq(projects.id, source.projectId)),
+      );
+    if (project?.archivedAt) {
+      throw new AppError('conflict', 'This project is archived and cannot take new tickets.', 409);
+    }
+
+    const sourceLabels = await tx
+      .select({ labelId: ticketLabels.labelId })
+      .from(ticketLabels)
+      .where(
+        and(
+          eq(ticketLabels.organisationId, context.organisationId),
+          eq(ticketLabels.ticketId, source.id),
+        ),
+      );
+
+    const now = new Date();
+    const created = await createTicketRow(tx, {
+      organisationId: context.organisationId,
+      projectId: source.projectId,
+      reporterId: context.actorUserId,
+      title: copyTitle(source.title),
+      description: source.description,
+      typeId: source.typeId,
+      priorityId: source.priorityId,
+      assigneeId: hasPermission(context.permissions, 'tickets.assign') ? source.assigneeId : null,
+      componentId: source.componentId,
+      dueDate: source.dueDate,
+      estimateMinutes: source.estimateMinutes,
+      labelIds: sourceLabels.map((label) => label.labelId),
+      createdAt: now,
+    });
+    // A millisecond after "created", so the history reads in that order.
+    await addTicketEvent(tx, {
+      organisationId: context.organisationId,
+      ticketId: created.id,
+      actorUserId: context.actorUserId,
+      event: { type: 'ticket.duplicated', data: { fromKey: source.key } },
+      createdAt: new Date(now.getTime() + 1),
+    });
+
+    const detail = await loadTicketDetail(tx, context.organisationId, created.key);
+    if (!detail) throw new Error('A ticket that was just created could not be read back');
+    return detail;
+  });
 }

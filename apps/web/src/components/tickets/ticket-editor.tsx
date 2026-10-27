@@ -58,7 +58,12 @@ export function TicketEditorProvider({
     setConflict(false);
   }
 
-  const { canEdit, canAssign, canComment } = fieldPermissions(permissions);
+  // An archived ticket is read-only for everyone, whatever their role allows.
+  const archived = ticket.archivedAt !== null;
+  const allowed = fieldPermissions(permissions);
+  const canEdit = allowed.canEdit && !archived;
+  const canAssign = allowed.canAssign && !archived;
+  const canComment = allowed.canComment && !archived;
 
   async function save(patch: Patch): Promise<boolean> {
     if (saving) return false;

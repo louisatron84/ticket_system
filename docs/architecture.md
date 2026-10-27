@@ -1,7 +1,7 @@
 # Architecture
 
-This describes what exists at Stage 1. Later stages extend it; see `docs/superpowers/plans/` for
-the staged plans.
+This describes what exists after Stage 2, Part A (projects, tickets, comments, the list and the
+board). Later stages extend it; see `docs/superpowers/plans/` for the staged plans.
 
 ## Shape
 
@@ -20,12 +20,12 @@ The browser never talks to the API's own address. Its `/api/v1/*` (and, in devel
 rewrites), so the session cookie is first-party and no CORS is needed. Server components call the
 API directly and forward the cookie.
 
-| Workspace         | Responsibility                                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `apps/api`        | HTTP API: config, errors, request ids, health, sessions, authorisation, org routes                                 |
-| `apps/web`        | Application shell and pages; the `/api` proxy                                                                      |
-| `packages/shared` | The wire contract: error body, health reports, permissions, roles, role-change rules, request and response schemas |
-| `packages/db`     | Schema, migrations, pool and Drizzle client, seed and reset, test-database guard                                   |
+| Workspace         | Responsibility                                                                                                                                        |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/api`        | HTTP API: config, errors, request ids, health, sessions, authorisation, org routes, tickets (`src/tickets`)                                           |
+| `apps/web`        | Application shell and pages; the `/api` proxy                                                                                                         |
+| `packages/shared` | The wire contract: error body, health reports, permissions, roles, role-change rules, request and response schemas, ticket rules and the list filters |
+| `packages/db`     | Schema, migrations, pool and Drizzle client, seed and reset, test-database guard, ticket creation shared with the seed                                |
 
 Rules that keep the boundaries clean:
 
@@ -53,17 +53,121 @@ Rules that keep the boundaries clean:
 
 ## Web routes
 
-| Route               | What it is                                                                       |
-| ------------------- | -------------------------------------------------------------------------------- |
-| `/`                 | A plain HTTP redirect to your default workspace (or sign-in, or `/no-workspace`) |
-| `/login`            | Sign-in (development account list, or a "not configured" message)                |
-| `/w/<slug>`         | Workspace overview: your role and permissions, plus system status                |
-| `/w/<slug>/members` | Members and roles, with role editing for those allowed to                        |
-| `/settings/profile` | Your details and preferences                                                     |
+| Route                            | What it is                                                                       |
+| -------------------------------- | -------------------------------------------------------------------------------- |
+| `/`                              | A plain HTTP redirect to your default workspace (or sign-in, or `/no-workspace`) |
+| `/login`                         | Sign-in (development account list, or a "not configured" message)                |
+| `/w/<slug>`                      | Workspace overview: your role and permissions, plus system status                |
+| `/w/<slug>/projects`             | The projects, and a dialog to create one                                         |
+| `/w/<slug>/projects/<KEY>/board` | A project's Kanban board (the project's default page)                            |
+| `/w/<slug>/projects/<KEY>/list`  | The project's tickets as a filterable list                                       |
+| `/w/<slug>/tickets`              | Every ticket you can see, with filters and saved views (the List tab)            |
+| `/w/<slug>/tickets/board`        | Every project's tickets on one Kanban board (the Board tab)                      |
+| `/w/<slug>/tickets/new`          | The create-ticket form (`?project=KEY` preselects a project)                     |
+| `/w/<slug>/tickets/<KEY-n>`      | One ticket: fields, description, comments and history                            |
+| `/w/<slug>/members`              | Members and roles, with role editing for those allowed to                        |
+| `/settings/profile`              | Your details and preferences                                                     |
 
 Everything except `/` and `/login` renders inside the application shell (`(app)` route group), which
 redirects to `/login` when nobody is signed in. A workspace you are not in, and addresses that match
-nothing, return a real `404`.
+nothing, return a real `404`. A project or ticket that does not exist **inside your own** workspace
+shows the same not-found page but with status `200`: the page streams behind the workspace's
+loading skeleton, so the status line is already sent. A project or ticket of a workspace you are
+not in is a real `404`.
+
+## Tickets
+
+- **API.** Under `/api/v1/orgs/:orgId`: projects (`/projects`, `/projects/:key`,
+  `/projects/:key/components`, `/projects/:key/tickets`, `/projects/:key/board`), tickets
+  (`/tickets`, `/tickets/:key`, `/tickets/:key/comments`, `/tickets/:key/timeline`), the workspace
+  board (`/board`), `/labels`,
+  `/ticket-config` (types, priorities, labels, components in one call) and `/views`. Each route
+  names its permission in the route table of [security](security.md#tickets-and-projects).
+- **One filter definition.** `ticketFilterSchema` and `parseTicketFilters` in `@forge/shared` are
+  the only parser of list filters. The API validates a query string with it; the web app reads and
+  writes the page URL with it (`ticketFiltersToSearchParams`). The address bar is therefore the
+  state of a list: a filtered list can be reloaded, bookmarked and sent to someone, and a saved view
+  is just a stored filter set. An invalid filter in a link is reported and ignored by the screen,
+  and refused with `422` by the API.
+- **One implementation of ticket creation.** `createTicketRow` in `@forge/db` is used by the API's
+  `createTicket` and by the demo seed, so demo tickets are numbered, labelled and logged exactly
+  like real ones.
+- **Allowed moves come from the server.** The ticket detail includes `allowedTransitions` for the
+  ticket page's select; a board gets each project's statuses and transitions (a `Workflow`) and
+  checks a drop against the ticket's own project (`canMoveTo` in `apps/web/src/lib/board.ts`). The
+  API still checks every move.
+- **The board** is one request: a column per active status, up to 50 tickets each, with the full
+  count per column. It ignores paging and ignores the status filters (the columns are the statuses).
+- **The Tickets board** (`GET /api/v1/orgs/:orgId/board`) is every project's board in one: a column
+  per status **key**, so a column holds tickets of several projects. A column takes its name and
+  category from the first project (by key) that has the key, and its place from the smallest
+  position any project gives it, so a status only some projects have gets a column of its own. The
+  response carries each project's workflow, and a card moves under its own project's workflow (a
+  ticket of an archived project cannot be moved). Unlike a project's board, the project filter
+  applies. Columns are identified by status key on both boards, so one `Board` component serves both.
+- **Pagination** is by page number and page size (default 50, at most 100), with a total count.
+- **Server components fetch, client components edit.** Pages load data on the server with the
+  viewer's cookie; the interactive parts (editor, board, filter bar) call `/api` through the
+  proxy and refresh the page on success.
+- **Drag and drop** uses `@dnd-kit/core`, with pointer-within collision, a keyboard path of its own
+  that skips columns that cannot take the card, and a "Move to" menu that needs no dragging.
+
+## Everyday speed
+
+The common actions take one or two keystrokes, and each is also a button. One shared module
+(`apps/web/src/lib/ticket-actions.ts` and `components/tickets/use-ticket-actions.ts`) performs them,
+so the ticket page, a board card, the list, the command menu and the shortcuts behave and word their
+results the same way.
+
+- **API.** `POST /tickets/:key/archive`, `/unarchive` (`tickets.edit`) and `/duplicate`
+  (`tickets.create`, answers `201`); `POST /tickets/bulk` (`tickets.edit`, plus `tickets.assign`
+  to set an assignee); `GET /workflows` (every project's statuses and transitions); the create body
+  takes an optional `statusId` (any active status of the project). They reuse `updateTicket` and
+  `createTicket`, so permissions, validation, history and the version rule live in one place.
+- **Archived tickets are read-only.** Edits and comments answer `409` ("This ticket is archived.
+  Unarchive it to change it.") until the ticket is unarchived. The ticket page shows a banner with
+  Unarchive.
+- **Bulk changes** take 1 to 100 keys. Each ticket is changed in its own transaction against its
+  current version, and the answer lists every ticket's own result in the order asked; partial
+  success is never hidden. `archived: false` unarchives before the other changes; `archived: true`
+  archives after them.
+- **Menus.** `components/tickets/action-menu.tsx` is the one menu shell (button, panel, Escape,
+  focus return); `ticket-choices.tsx` holds the status, priority, assignee and label lists that a
+  card's menu, the list's cells and the bulk bar all show.
+- **Command menu and shortcuts.** `CommandMenuProvider` is mounted once per workspace (in
+  `app/(app)/w/[slug]/layout.tsx`) and listens for Ctrl+K / Cmd+K. A page adds its own commands with
+  `usePageCommands` (the ticket page adds that ticket's actions, saved through the page's editor).
+  `KeyboardShortcuts` handles the single-key shortcuts listed in `lib/shortcuts.ts`; a key typed into
+  a field is never a shortcut. `<html data-keyboard="ready">` and `data-page-commands="ready"` tell
+  the browser tests the listeners are attached.
+
+## Board settings per person
+
+How a person likes their board (the **Display** menu) belongs to the person, not to the project.
+
+- **Stored** in the person's existing preferences record (`user_preferences`), under two keys
+  validated by `@forge/shared` (`board-display.ts`): `board` (which card fields show, density,
+  heat on or off; the same on every board) and `boardColumns` (per project key: which status keys
+  are hidden and in what order, at most 20 keys each and 100 projects). The Tickets board's column
+  choice is a third key, `ticketsBoardColumns`, so hiding a column there hides it on no project's
+  board, and the reverse. Statuses are named by key, so renaming a status changes nothing here.
+- **Merged safely.** `PATCH /api/v1/me/preferences` merges inside Postgres in one statement: a
+  change to one card field keeps the others, a change to one project's columns keeps the other
+  projects', and a `null` entry forgets a project (`ticketsBoardColumns: null` forgets the Tickets
+  board's choice). Two tabs saving at the same moment lose
+  nothing (tested).
+- **Rendered on the server.** The board page reads the saved settings with the viewer and renders
+  with them, so there is no flash of the defaults. `BoardPrefsProvider` (client) then owns the
+  state: a change applies at once and is saved; if the save fails the change is undone and the
+  person is told.
+- **One place decides what is on screen.** `arrangeColumns` (`apps/web/src/lib/board-columns.ts`)
+  turns the project's columns plus the person's saved choice into the columns to show: every
+  status exactly once, saved keys that no longer exist ignored, a status added since appended in
+  workflow order, and nothing hidden except what the person hid (or Scrapped, when they have chosen
+  nothing yet).
+- **Hidden is only a view.** The board request still returns every status; hiding changes which
+  are drawn. Drag and keyboard moves therefore skip hidden columns, while the card's "Move to" menu
+  still lists them.
 
 ## Decisions
 

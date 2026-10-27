@@ -1,6 +1,7 @@
 import { organisationMemberships, roles, ticketComments, ticketEvents, tickets } from '@forge/db';
 import { commentSchema, timelineItemSchema, type TimelineItem } from '@forge/shared';
 import { and, asc, eq } from 'drizzle-orm';
+import { boardSchema, ticketDetailSchema, ticketListSchema } from '@forge/shared';
 import { z } from 'zod';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { loadFacts, ticketRow, type Facts } from '../test-support/facts';
@@ -629,4 +630,73 @@ describe('deleting a comment', () => {
       expect((await deleteComment('WEB-2', id, await ctx.cookieFor('owner'))).statusCode).toBe(404);
     },
   );
+});
+
+describe('comment counts', () => {
+  /** What the detail, the list and the board each say about one ticket's comments. */
+  async function counts(key: string) {
+    const cookie = await ctx.cookieFor('owner');
+    const org = `/api/v1/orgs/${f.acmeId}`;
+    const detail = ticketDetailSchema.parse(
+      (await call({ method: 'GET', url: `${org}/tickets/${key}`, cookie })).json(),
+    );
+    const list = ticketListSchema.parse(
+      (
+        await call({ method: 'GET', url: `${org}/tickets?project=WEB&pageSize=100`, cookie })
+      ).json(),
+    );
+    const board = boardSchema.parse(
+      (await call({ method: 'GET', url: `${org}/projects/WEB/board`, cookie })).json(),
+    );
+    return {
+      detail: detail.commentCount,
+      list: list.items.find((ticket) => ticket.key === key)?.commentCount,
+      board: board.columns.flatMap((column) => column.tickets).find((ticket) => ticket.key === key)
+        ?.commentCount,
+    };
+  }
+
+  it("counts a ticket's comments on its detail, the list and the board", async () => {
+    const before = await counts('WEB-4');
+    await comment('WEB-4', 'owner', 'First');
+    await comment('WEB-4', 'developer', 'Second');
+
+    const after = await counts('WEB-4');
+    expect(after).toEqual({
+      detail: before.detail + 2,
+      list: before.detail + 2,
+      board: before.detail + 2,
+    });
+  });
+
+  it('no longer counts a comment once it is deleted', async () => {
+    const before = await counts('WEB-4');
+    const added = await comment('WEB-4', 'owner', 'Short-lived');
+    expect((await counts('WEB-4')).detail).toBe(before.detail + 1);
+
+    expect((await deleteComment('WEB-4', added.id, await ctx.cookieFor('owner'))).statusCode).toBe(
+      204,
+    );
+    expect(await counts('WEB-4')).toEqual({
+      detail: before.detail,
+      list: before.detail,
+      board: before.detail,
+    });
+  });
+
+  it("never counts another ticket's or another workspace's comments", async () => {
+    const before = await counts('WEB-4');
+    await comment('WEB-5', 'owner', 'On a different ticket');
+    const nora = await ctx.cookieFor('other-owner');
+    expect(
+      (await postComment('OPS-1', { body: 'In another workspace' }, nora, f.northwindId))
+        .statusCode,
+    ).toBe(201);
+
+    expect(await counts('WEB-4')).toEqual({
+      detail: before.detail,
+      list: before.detail,
+      board: before.detail,
+    });
+  });
 });

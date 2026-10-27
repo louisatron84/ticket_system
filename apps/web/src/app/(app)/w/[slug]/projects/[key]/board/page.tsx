@@ -4,6 +4,7 @@ import {
   memberSchema,
   normalizeProjectKey,
   projectDetailSchema,
+  resolveBoardDisplay,
   savedViewSchema,
   ticketConfigSchema,
   ticketFiltersToSearchParams,
@@ -11,6 +12,8 @@ import {
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { Board } from '@/components/board/board';
+import { DisplayMenu } from '@/components/board/display-menu';
+import { BoardPrefsProvider } from '@/components/board/prefs-provider';
 import { FilterBar } from '@/components/tickets/filter-bar';
 import { buildFilterOptions } from '@/components/tickets/filter-options';
 import { SavedViewsMenu } from '@/components/tickets/saved-views';
@@ -70,41 +73,70 @@ export default async function ProjectBoardPage({
   const maxRank = Math.max(1, ...config.data.priorities.map((priority) => priority.rank));
 
   return (
-    <div className="flex flex-col gap-4">
-      <FilterBar
-        basePath={workspaceHref(membership.organisation.slug, `/projects/${key}/board`)}
-        filters={filters}
-        scoped
-        showStatus={false}
-        ignored={parsed.ignored}
-        options={buildFilterOptions({
-          config: config.data,
-          ...(members?.ok ? { members: members.data } : {}),
-        })}
-        trailing={
-          <SavedViewsMenu
-            slug={membership.organisation.slug}
-            organisationId={organisationId}
-            viewerUserId={viewer.user.id}
-            views={views.ok ? views.data : []}
-            canShare={hasPermission(membership.permissions, 'projects.manage')}
-            filters={filters}
-            display="board"
-          />
-        }
-      />
+    <BoardPrefsProvider
+      scope={{ kind: 'project', projectKey: key }}
+      initialDisplay={resolveBoardDisplay(viewer.preferences.board)}
+      initialColumns={viewer.preferences.boardColumns?.[key] ?? undefined}
+    >
+      <div className="flex flex-col gap-4">
+        <FilterBar
+          basePath={workspaceHref(membership.organisation.slug, `/projects/${key}/board`)}
+          filters={filters}
+          scoped
+          showStatus={false}
+          ignored={parsed.ignored}
+          options={buildFilterOptions({
+            config: config.data,
+            ...(members?.ok ? { members: members.data } : {}),
+          })}
+          trailing={
+            <div className="flex items-center gap-2">
+              <SavedViewsMenu
+                slug={membership.organisation.slug}
+                organisationId={organisationId}
+                viewerUserId={viewer.user.id}
+                views={views.ok ? views.data : []}
+                canShare={hasPermission(membership.permissions, 'projects.manage')}
+                filters={filters}
+                display="board"
+              />
+              <DisplayMenu
+                columns={board.data.columns.map(({ status, total }) => ({ status, total }))}
+              />
+            </div>
+          }
+        />
 
-      <Board
-        initial={board.data}
-        organisationId={organisationId}
-        slug={membership.organisation.slug}
-        projectKey={key}
-        transitions={project.data.transitions}
-        canMove={permissions.canEdit && !project.data.archived}
-        today={now.toISOString().slice(0, 10)}
-        maxRank={maxRank}
-        filters={filters}
-      />
-    </div>
+        <Board
+          initial={board.data}
+          workflows={[
+            {
+              projectId: project.data.id,
+              projectKey: project.data.key,
+              archived: project.data.archived,
+              statuses: project.data.statuses,
+              transitions: project.data.transitions,
+            },
+          ]}
+          organisationId={organisationId}
+          slug={membership.organisation.slug}
+          canMove={permissions.canEdit}
+          today={now.toISOString().slice(0, 10)}
+          maxRank={maxRank}
+          filters={filters}
+          listBase={workspaceHref(membership.organisation.slug, `/projects/${key}/list`)}
+          scoped
+          dndId={`board-${key}`}
+          config={config.data}
+          members={members?.ok ? members.data : null}
+          viewerId={viewer.user.id}
+          canCreate={permissions.canCreate}
+          canAssign={permissions.canAssign}
+          projects={[
+            { key: project.data.key, name: project.data.name, archived: project.data.archived },
+          ]}
+        />
+      </div>
+    </BoardPrefsProvider>
   );
 }

@@ -151,6 +151,7 @@ export function FilterBar({
             value={text}
             onChange={(event) => setText(event.target.value)}
             placeholder="Search title or key"
+            data-shortcut="search"
             autoComplete="off"
             maxLength={100}
             className={`${inputClass()} w-56 pl-8`}

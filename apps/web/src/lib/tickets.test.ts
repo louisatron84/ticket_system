@@ -5,17 +5,8 @@ import {
   formatRelativeTime,
   initials,
   priorityIntensity,
-  statusTone,
   suggestProjectKey,
 } from './tickets';
-
-describe('statusTone', () => {
-  it('maps each category to a tone', () => {
-    expect(statusTone('not_started')).toBe('idle');
-    expect(statusTone('in_progress')).toBe('active');
-    expect(statusTone('completed')).toBe('done');
-  });
-});
 
 describe('priorityIntensity', () => {
   it('fills one bar per rank on the default five-step scale', () => {

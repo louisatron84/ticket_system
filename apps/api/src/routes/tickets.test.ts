@@ -243,6 +243,69 @@ describe('creating a ticket', () => {
     });
   });
 
+  describe('in a status of the caller’s choosing', () => {
+    it('creates a ticket in the status asked for', async () => {
+      const response = await createIn(
+        'WEB',
+        validBody({ statusId: f.statusId('WEB', 'in_review') }),
+        await ctx.cookieFor('developer'),
+      );
+      expect(response.statusCode, response.body).toBe(201);
+      const ticket = ticketDetailSchema.parse(response.json());
+      expect(ticket.status).toMatchObject({ key: 'in_review', name: 'Tempering' });
+      expect(ticket.completedAt).toBeNull();
+      expect(await eventTypes(ticket.key)).toEqual(['ticket.created']);
+    });
+
+    it('stamps completion when the status is a finished one', async () => {
+      const response = await createIn(
+        'WEB',
+        validBody({ statusId: f.statusId('WEB', 'done') }),
+        await ctx.cookieFor('owner'),
+      );
+      expect(response.statusCode, response.body).toBe(201);
+      const ticket = ticketDetailSchema.parse(response.json());
+      expect(ticket.status.key).toBe('done');
+      expect(ticket.completedAt).not.toBeNull();
+    });
+
+    it('starts in the initial status without one', async () => {
+      const response = await createIn('WEB', validBody(), await ctx.cookieFor('owner'));
+      expect(ticketDetailSchema.parse(response.json()).status.key).toBe('backlog');
+    });
+
+    it('refuses a status of another project or an inactive one, and writes nothing', async () => {
+      await ctx.db
+        .update(projectStatuses)
+        .set({ isActive: false })
+        .where(eq(projectStatuses.id, f.statusId('WEB', 'blocked')));
+      const before = await ticketCount();
+      const owner = await ctx.cookieFor('owner');
+      for (const statusId of [
+        f.statusId('API', 'open'),
+        f.statusId('WEB', 'blocked'),
+        '01a1656b-1a49-7146-94ac-1c72df43ddb4',
+      ]) {
+        const response = await createIn('WEB', validBody({ statusId }), owner);
+        expect(response.statusCode, statusId).toBe(422);
+        const error = apiErrorSchema.parse(response.json()).error;
+        expect(error.details?.map((d) => d.path)).toEqual(['statusId']);
+      }
+      expect(await ticketCount()).toBe(before);
+      const [project] = await ctx.db.select().from(projects).where(eq(projects.key, 'WEB'));
+      expect(project?.nextTicketNumber).toBe(13);
+    });
+
+    it('still needs tickets.create', async () => {
+      const response = await createIn(
+        'WEB',
+        validBody({ statusId: f.statusId('WEB', 'open') }),
+        await ctx.cookieFor('reviewer'),
+      );
+      expect(response.statusCode).toBe(403);
+    });
+  });
+
   it('refuses to put tickets in an archived project', async () => {
     await ctx.db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.key, 'WEB'));
     const response = await createIn('WEB', validBody(), await ctx.cookieFor('owner'));
@@ -525,7 +588,7 @@ describe('editing a ticket', () => {
       const response = await moveTo('WEB-4', 'WEB', 'done', await ctx.cookieFor('owner'));
       expect(response.statusCode).toBe(422);
       expect(response.json().error.details[0]).toMatchObject({ path: 'statusId' });
-      expect(response.json().error.details[0].message).toContain('Backlog');
+      expect(response.json().error.details[0].message).toContain('Cold Steel');
       expect((await ticketRow(ctx.db, 'WEB-4'))?.version).toBe(1);
     });
 

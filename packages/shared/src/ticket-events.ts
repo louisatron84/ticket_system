@@ -40,6 +40,10 @@ export const ticketEventSchema = z.discriminatedUnion('type', [
     type: z.literal('labels.changed'),
     data: z.object({ added: z.array(z.string()), removed: z.array(z.string()) }),
   }),
+  z.object({ type: z.literal('ticket.archived'), data: z.object({}) }),
+  z.object({ type: z.literal('ticket.unarchived'), data: z.object({}) }),
+  // Written on the copy; `fromKey` is the key of the ticket it was copied from.
+  z.object({ type: z.literal('ticket.duplicated'), data: z.object({ fromKey: z.string() }) }),
 ]);
 export type TicketEvent = z.infer<typeof ticketEventSchema>;
 
@@ -110,6 +114,12 @@ export function describeTicketEvent(event: TicketEvent, actorName: string): stri
       return `${actorName} edited a comment`;
     case 'comment.deleted':
       return `${actorName} deleted a comment`;
+    case 'ticket.archived':
+      return `${actorName} archived this ticket`;
+    case 'ticket.unarchived':
+      return `${actorName} unarchived this ticket`;
+    case 'ticket.duplicated':
+      return `${actorName} duplicated this from ${event.data.fromKey}`;
   }
 }
 

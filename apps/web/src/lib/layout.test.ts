@@ -13,12 +13,14 @@ describe('contentWidth', () => {
     expect(contentWidth(path)).toBe('narrow');
   });
 
-  it.each(['/w/acme/tickets', '/w/acme/projects/WEB/board', '/w/acme/projects/WEB/list'])(
-    'gives %s the full width, for tables and boards',
-    (path) => {
-      expect(contentWidth(path)).toBe('full');
-    },
-  );
+  it.each([
+    '/w/acme/tickets',
+    '/w/acme/tickets/board',
+    '/w/acme/projects/WEB/board',
+    '/w/acme/projects/WEB/list',
+  ])('gives %s the full width, for tables and boards', (path) => {
+    expect(contentWidth(path)).toBe('full');
+  });
 
   it.each(['/w/acme/tickets/WEB-12', '/w/acme/tickets/new'])(
     'gives %s a wider column, for the ticket and its fields',

@@ -17,17 +17,19 @@ export function definitionFromFilters(
 }
 
 /**
- * Where opening a view leads. A list view opens the tickets page. A board view opens that
- * project's board, but a board needs exactly one project, so one that names none (or several)
- * opens as a list instead.
+ * Where opening a view leads. A list view opens the tickets page. A board view naming exactly one
+ * project opens that project's board; one naming none, or several, opens the Tickets board.
  */
 export function viewTarget(slug: string, view: SavedView): string {
   const filters: TicketFilters = { ...view.definition.filters, page: 1 };
-  const [project, ...others] = filters.project;
-  if (view.definition.display === 'board' && project && others.length === 0) {
-    return hrefFor(workspaceHref(slug, `/projects/${project}/board`), filters, {
-      omitProject: true,
-    });
+  if (view.definition.display === 'board') {
+    const [project, ...others] = filters.project;
+    if (project && others.length === 0) {
+      return hrefFor(workspaceHref(slug, `/projects/${project}/board`), filters, {
+        omitProject: true,
+      });
+    }
+    return hrefFor(workspaceHref(slug, '/tickets/board'), filters);
   }
   return hrefFor(workspaceHref(slug, '/tickets'), filters);
 }

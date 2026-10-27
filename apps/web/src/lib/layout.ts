@@ -5,7 +5,7 @@ export type ContentWidth = 'narrow' | 'wide' | 'full';
  * board are tables and lanes that need all the room; a single ticket sits between the two.
  */
 export function contentWidth(pathname: string): ContentWidth {
-  if (/^\/w\/[^/]+\/tickets$/.test(pathname)) return 'full';
+  if (/^\/w\/[^/]+\/tickets(\/board)?$/.test(pathname)) return 'full';
   if (/^\/w\/[^/]+\/projects\/[^/]+\/(board|list)$/.test(pathname)) return 'full';
   if (/^\/w\/[^/]+\/tickets\/[^/]+$/.test(pathname)) return 'wide';
   return 'narrow';

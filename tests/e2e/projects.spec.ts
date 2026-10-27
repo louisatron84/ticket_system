@@ -22,8 +22,9 @@ test.describe('projects', () => {
     await expect(page).toHaveURL(/\/w\/acme\/projects\/CP\/board$/);
     await expect(page.getByRole('heading', { name: 'Customer Portal', level: 1 })).toBeVisible();
     // A new project has the standard workflow and nothing in it yet.
-    await expect(page.locator('section[aria-label^="Backlog"]')).toBeVisible();
-    await expect(page.getByText('No tickets')).toHaveCount(7);
+    await expect(page.locator('section[aria-label^="Cold Steel"]')).toBeVisible();
+    // Six columns: Scrapped is hidden on a board until the person chooses to show it.
+    await expect(page.getByText('No tickets')).toHaveCount(6);
   });
 
   test('a taken key is explained next to the key, and nothing typed is lost', async ({ page }) => {

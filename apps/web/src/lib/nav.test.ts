@@ -131,6 +131,14 @@ describe('breadcrumbsFor', () => {
     ]);
   });
 
+  it('names the Tickets board', () => {
+    expect(breadcrumbsFor('/w/acme/tickets/board', acme)).toEqual([
+      { label: 'Acme Robotics', href: '/w/acme' },
+      { label: 'Tickets', href: '/w/acme/tickets' },
+      { label: 'Board' },
+    ]);
+  });
+
   it('shows a lower-case ticket or project key in its canonical form', () => {
     expect(breadcrumbsFor('/w/acme/tickets/web-12', acme).at(-1)).toEqual({ label: 'WEB-12' });
     expect(breadcrumbsFor('/w/acme/projects/web/board', acme).at(-1)).toEqual({ label: 'WEB' });

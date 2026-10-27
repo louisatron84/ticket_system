@@ -162,6 +162,7 @@ export function breadcrumbsFor(
 
   if (item.id === 'tickets' && third === undefined) {
     if (second === 'new') return [home, parent, { label: 'New ticket' }];
+    if (second === 'board') return [home, parent, { label: 'Board' }];
     const ticket = parseTicketKey(second);
     return ticket ? [home, parent, { label: `${ticket.projectKey}-${ticket.number}` }] : [];
   }

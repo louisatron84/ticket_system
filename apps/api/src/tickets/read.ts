@@ -5,6 +5,7 @@ import {
   projectStatuses,
   projects,
   statusTransitions,
+  ticketComments,
   ticketLabels,
   ticketTypes,
   tickets,
@@ -100,9 +101,29 @@ async function labelsFor(
   return byTicket;
 }
 
+/** How many comments each of these tickets has. A ticket with none is absent from the map. */
+async function commentCountsFor(
+  executor: Executor,
+  organisationId: string,
+  ticketIds: string[],
+): Promise<Map<string, number>> {
+  if (ticketIds.length === 0) return new Map();
+  const rows = await executor
+    .select({ ticketId: ticketComments.ticketId, total: sql<number>`count(*)::int` })
+    .from(ticketComments)
+    .where(
+      and(
+        eq(ticketComments.organisationId, organisationId),
+        inArray(ticketComments.ticketId, ticketIds),
+      ),
+    )
+    .groupBy(ticketComments.ticketId);
+  return new Map(rows.map((row) => [row.ticketId, row.total]));
+}
+
 const iso = (date: Date | null) => (date ? date.toISOString() : null);
 
-function toSummary(row: Row, ticketLabelsList: Label[]): TicketSummary {
+function toSummary(row: Row, ticketLabelsList: Label[], commentCount: number): TicketSummary {
   return {
     id: row.id,
     key: row.key,
@@ -127,6 +148,7 @@ function toSummary(row: Row, ticketLabelsList: Label[]): TicketSummary {
     labels: ticketLabelsList,
     dueDate: row.dueDate,
     version: row.version,
+    commentCount,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -139,14 +161,15 @@ export async function loadTicketSummaries(
   ids: string[],
 ): Promise<TicketSummary[]> {
   if (ids.length === 0) return [];
-  const [rows, labelMap] = await Promise.all([
+  const [rows, labelMap, commentCounts] = await Promise.all([
     selectRows(executor, and(eq(tickets.organisationId, organisationId), inArray(tickets.id, ids))),
     labelsFor(executor, organisationId, ids),
+    commentCountsFor(executor, organisationId, ids),
   ]);
   const byId = new Map(rows.map((row) => [row.id, row] as const));
   return ids.flatMap((id) => {
     const row = byId.get(id);
-    return row ? [toSummary(row, labelMap.get(id) ?? [])] : [];
+    return row ? [toSummary(row, labelMap.get(id) ?? [], commentCounts.get(id) ?? 0)] : [];
   });
 }
 
@@ -162,8 +185,9 @@ export async function loadTicketDetail(
   );
   if (!row) return null;
 
-  const [labelMap, next] = await Promise.all([
+  const [labelMap, commentCounts, next] = await Promise.all([
     labelsFor(executor, organisationId, [row.id]),
+    commentCountsFor(executor, organisationId, [row.id]),
     executor
       .select({
         id: projectStatuses.id,
@@ -184,7 +208,7 @@ export async function loadTicketDetail(
   ]);
 
   return {
-    ...toSummary(row, labelMap.get(row.id) ?? []),
+    ...toSummary(row, labelMap.get(row.id) ?? [], commentCounts.get(row.id) ?? 0),
     description: row.description,
     reporter: { id: row.reporterId, email: row.reporterEmail, displayName: row.reporterName },
     component: row.componentId

@@ -34,7 +34,7 @@ test.describe('creating a ticket', () => {
     await expect(page).toHaveURL(/\/w\/acme\/tickets\/WEB-13$/);
     await expect(page.getByRole('heading', { name: 'Brand new ticket', level: 1 })).toBeVisible();
     await expect(page.getByLabel('Status')).toHaveValue(/.+/);
-    await expect(page.getByLabel('Status').locator('option:checked')).toHaveText('Backlog');
+    await expect(page.getByLabel('Status').locator('option:checked')).toHaveText('Cold Steel');
     await expect(activity(page)).toContainText('Dana Developer');
     await expect(activity(page)).toContainText('created this ticket');
     // Line breaks in the description are kept.
@@ -109,14 +109,24 @@ test.describe('changing a ticket', () => {
 
     const options = await page.getByLabel('Status').locator('option').allTextContents();
     expect(new Set(options)).toEqual(
-      new Set(['Open', 'Backlog', 'In Progress', 'Blocked', 'Cancelled']),
+      new Set(['Warming', 'Cold Steel', 'In the Forge', 'Blocked', 'Scrapped']),
     );
-    expect(options).not.toContain('Done');
-    expect(options).not.toContain('In Review');
+    expect(options).not.toContain('Quenched');
+    expect(options).not.toContain('Tempering');
 
-    await page.getByLabel('Status').selectOption({ label: 'In Progress' });
-    await expect(activity(page)).toContainText('moved this from Open to In Progress');
-    await expect(page.getByLabel('Status').locator('option:checked')).toHaveText('In Progress');
+    await page.getByLabel('Status').selectOption({ label: 'In the Forge' });
+    await expect(activity(page)).toContainText('moved this from Warming to In the Forge');
+    await expect(page.getByLabel('Status').locator('option:checked')).toHaveText('In the Forge');
+  });
+
+  test('the ticket page shows the status symbol in its heat', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openTicket(page, 'WEB-3'); // In Review, which is Tempering
+    const fields = page.getByRole('complementary', { name: 'Ticket fields' });
+    await expect(fields.locator('svg[data-heat="tempering"]')).toBeVisible();
+
+    await openTicket(page, 'WEB-7'); // Blocked
+    await expect(fields.locator('svg[data-heat="blocked"]')).toBeVisible();
   });
 
   test('a comment appears in the history, as plain text', async ({ page }) => {
@@ -200,7 +210,7 @@ test.describe('who may do what', () => {
     await expect(page.getByRole('textbox')).toHaveCount(0);
     await expect(page.getByText('cannot comment on tickets')).toBeVisible();
     await expect(
-      page.getByRole('complementary', { name: 'Ticket fields' }).getByText('In Review'),
+      page.getByRole('complementary', { name: 'Ticket fields' }).getByText('Tempering'),
     ).toBeVisible();
   });
 
@@ -292,7 +302,7 @@ test.describe('the list', () => {
     await page.goto('/w/acme/tickets');
     await hydrated(page);
 
-    await page.getByRole('button', { name: 'Priority' }).click();
+    await page.getByRole('button', { name: 'Priority', exact: true }).click();
     // The checkbox follows the address, so it ticks once the navigation has finished.
     await page.getByRole('checkbox', { name: 'High', exact: true }).click();
     await expect(page).toHaveURL(/priority=high/);
@@ -385,5 +395,155 @@ test.describe('the list', () => {
     // Opening it applies its filters.
     await page.getByRole('link', { name: 'Team view' }).click();
     await expect(page).toHaveURL(/assignee=me/);
+  });
+});
+
+test.describe('changing a ticket from the list', () => {
+  // A row's key is the text of its row header.
+  const row = (page: Page, key: string) =>
+    page
+      .locator('tbody tr')
+      .filter({ has: page.locator('th', { hasText: new RegExp(`^${key}$`) }) });
+
+  async function openList(page: Page) {
+    await page.goto('/w/acme/tickets');
+    await expect(row(page, 'WEB-3')).toBeVisible();
+    await hydrated(page);
+  }
+
+  test('the status menu offers only the moves the workflow allows, and a move shows in the row and the history', async ({
+    page,
+  }) => {
+    await signInAs(page, 'developer');
+    await openList(page);
+
+    await row(page, 'WEB-3').getByRole('button', { name: 'Change status of WEB-3' }).click();
+    const menu = page.getByRole('group', { name: 'Move WEB-3 to' });
+    await expect(menu.getByRole('button')).toHaveText([
+      'In the Forge',
+      'Blocked',
+      'Quenched',
+      'Scrapped',
+    ]);
+
+    await menu.getByRole('button', { name: 'Blocked' }).click();
+    await expect(
+      row(page, 'WEB-3').getByRole('button', { name: 'Change status of WEB-3' }),
+    ).toHaveText('Blocked');
+    await expect(menu).toHaveCount(0);
+
+    await openTicket(page, 'WEB-3');
+    await expect(activity(page)).toContainText('moved this from Tempering to Blocked');
+  });
+
+  test('priority and assignee change the same way, and an assignee can be taken off', async ({
+    page,
+  }) => {
+    await signInAs(page, 'developer');
+    await openList(page);
+
+    await row(page, 'WEB-3').getByRole('button', { name: 'Change priority of WEB-3' }).click();
+    const priorities = page.getByRole('group', { name: 'Priority for WEB-3' });
+    // Highest first, with the current one marked.
+    await expect(priorities.getByRole('button').first()).toHaveText('Critical');
+    await expect(priorities.locator('[aria-current="true"]')).toHaveText('Critical');
+    await priorities.getByRole('button', { name: 'Low', exact: true }).click();
+    await expect(
+      row(page, 'WEB-3').getByRole('button', { name: 'Change priority of WEB-3' }),
+    ).toHaveText('Low');
+
+    await row(page, 'WEB-3').getByRole('button', { name: 'Change assignee of WEB-3' }).click();
+    const people = page.getByRole('group', { name: 'Assign WEB-3 to' });
+    await expect(people.locator('[aria-current="true"]')).toHaveText('Dana Developer');
+    await people.getByRole('button', { name: 'Riley Reviewer' }).click();
+    await expect(
+      row(page, 'WEB-3').getByRole('button', { name: 'Change assignee of WEB-3' }),
+    ).toContainText('Riley Reviewer');
+
+    await row(page, 'WEB-3').getByRole('button', { name: 'Change assignee of WEB-3' }).click();
+    await page
+      .getByRole('group', { name: 'Assign WEB-3 to' })
+      .getByRole('button', {
+        name: 'Unassigned',
+      })
+      .click();
+    await expect(
+      row(page, 'WEB-3').getByRole('button', { name: 'Change assignee of WEB-3' }),
+    ).toContainText('Unassigned');
+
+    await openTicket(page, 'WEB-3');
+    await expect(activity(page)).toContainText('changed the priority from Critical to Low');
+    await expect(activity(page)).toContainText(
+      'reassigned this from Dana Developer to Riley Reviewer',
+    );
+    await expect(activity(page)).toContainText('unassigned Riley Reviewer');
+  });
+
+  test('a row changed elsewhere says so, refreshes, and keeps the other person’s change', async ({
+    page,
+  }) => {
+    await signInAs(page, 'developer');
+    await openList(page);
+
+    // Someone else changes the ticket after the list was drawn.
+    const acme = await acmeId(page);
+    const current = await page.request.get(`/api/v1/orgs/${acme}/tickets/WEB-3`);
+    const { version } = (await current.json()) as { version: number };
+    const priorities = await page.request.get(`/api/v1/orgs/${acme}/ticket-config`);
+    const low = (
+      (await priorities.json()) as { priorities: { id: string; name: string }[] }
+    ).priorities.find((priority) => priority.name === 'Low')!;
+    const changed = await page.request.patch(`/api/v1/orgs/${acme}/tickets/WEB-3`, {
+      data: { version, priorityId: low.id },
+    });
+    expect(changed.status()).toBe(200);
+
+    await row(page, 'WEB-3').getByRole('button', { name: 'Change status of WEB-3' }).click();
+    await page
+      .getByRole('group', { name: 'Move WEB-3 to' })
+      .getByRole('button', {
+        name: 'Blocked',
+      })
+      .click();
+
+    await expect(
+      page.getByText(
+        'This ticket was changed by someone else. Reload it to see the latest version.',
+      ),
+    ).toBeVisible();
+    // The row now shows what the other person did, and the status was not changed.
+    await expect(
+      row(page, 'WEB-3').getByRole('button', { name: 'Change priority of WEB-3' }),
+    ).toHaveText('Low');
+    await expect(
+      row(page, 'WEB-3').getByRole('button', { name: 'Change status of WEB-3' }),
+    ).toHaveText('Tempering');
+  });
+
+  test('the keyboard opens a menu, chooses, and gives the focus back to the cell', async ({
+    page,
+  }) => {
+    await signInAs(page, 'developer');
+    await openList(page);
+
+    const cell = row(page, 'WEB-3').getByRole('button', { name: 'Change priority of WEB-3' });
+    await cell.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('group', { name: 'Priority for WEB-3' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('group', { name: 'Priority for WEB-3' })).toHaveCount(0);
+    await expect(cell).toBeFocused();
+  });
+
+  test('people who cannot edit see the values as text, with no buttons', async ({ page }) => {
+    await signInAs(page, 'readonly');
+    for (const who of ['readonly', 'reviewer'] as const) {
+      if (who !== 'readonly') await switchTo(page, who);
+      await openList(page);
+      const web3 = row(page, 'WEB-3');
+      await expect(web3).toContainText('Tempering');
+      await expect(web3).toContainText('Critical');
+      await expect(web3.getByRole('button')).toHaveCount(0);
+    }
   });
 });

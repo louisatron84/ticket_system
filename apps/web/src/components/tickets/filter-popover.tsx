@@ -10,11 +10,17 @@ export type FilterOption = { value: string; label: string; icon?: ReactNode };
 export function FilterPopover({
   label,
   count = 0,
+  align = 'left',
+  tall = false,
   children,
 }: {
   label: string;
   /** How many choices are active; shown on the button so a filter in use is visible when closed. */
   count?: number;
+  /** Which edge of the button the panel lines up with. A button at the right edge opens leftwards. */
+  align?: 'left' | 'right';
+  /** A panel with a lot in it grows with the window instead of scrolling at a fixed height. */
+  tall?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -57,7 +63,7 @@ export function FilterPopover({
       {open && (
         <div
           id={panelId}
-          className="absolute left-0 top-9 z-30 max-h-80 min-w-52 overflow-y-auto rounded-md border border-edge-strong bg-panel p-1 shadow-[0_10px_28px_rgba(0,0,0,0.5)]"
+          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-9 z-30 ${tall ? 'max-h-[calc(100vh-9rem)]' : 'max-h-80'} min-w-52 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border border-edge-strong bg-panel p-1 shadow-[0_10px_28px_rgba(0,0,0,0.5)]`}
         >
           {children}
         </div>

@@ -10,6 +10,10 @@ test.beforeEach(async ({ request }) => {
 
 const column = (page: Page, name: string) => page.locator(`section[aria-label^="${name},"]`);
 const card = (page: Page, key: string) => page.locator(`li[data-ticket="${key}"]`);
+const actionsButton = (page: Page, key: string) =>
+  page.getByRole('button', { name: `Actions for ${key}` });
+const actionsMenu = (page: Page, key: string) =>
+  page.getByRole('group', { name: `${key} actions` });
 
 async function openBoard(page: Page) {
   await page.goto('/w/acme/projects/WEB/board');
@@ -31,34 +35,146 @@ async function dragCard(page: Page, key: string, toColumn: string) {
 }
 
 test.describe('the board', () => {
-  test('has a column for every status, with the seeded counts', async ({ page }) => {
+  test('has a column for every status but Scrapped, with the seeded counts', async ({ page }) => {
     await signInAs(page, 'owner');
     await openBoard(page);
 
     const expected: [string, string][] = [
-      ['Backlog', 'Backlog, 2 tickets'],
-      ['Open', 'Open, 3 tickets'],
-      ['In Progress', 'In Progress, 2 tickets'],
-      ['In Review', 'In Review, 1 ticket'],
+      ['Cold Steel', 'Cold Steel, 2 tickets'],
+      ['Warming', 'Warming, 3 tickets'],
+      ['In the Forge', 'In the Forge, 2 tickets'],
+      ['Tempering', 'Tempering, 1 ticket'],
       ['Blocked', 'Blocked, 1 ticket'],
-      ['Done', 'Done, 2 tickets'],
-      ['Cancelled', 'Cancelled, 1 ticket'],
+      ['Quenched', 'Quenched, 2 tickets'],
     ];
     for (const [name, label] of expected) {
       await expect(column(page, name)).toHaveAttribute('aria-label', label);
     }
+    // Scrapped work is hidden until a person chooses to see it (see the Display menu tests).
+    await expect(column(page, 'Scrapped')).toHaveCount(0);
     await expect(card(page, 'WEB-3')).toContainText('Checkout page is slow on mobile');
+  });
+
+  test('at a wide window every column is on screen, sharing the width', async ({ page }) => {
+    await signInAs(page, 'owner');
+    await openBoard(page);
+
+    const layout = await page.evaluate(() => {
+      const columns = Array.from(document.querySelectorAll('section[data-heat]')).map((section) => {
+        const box = section.getBoundingClientRect();
+        return { left: box.left, right: box.right, width: box.width };
+      });
+      return { columns, viewport: window.innerWidth };
+    });
+    expect(layout.columns).toHaveLength(6);
+    for (const column of layout.columns) {
+      expect(column.right, 'no column is cut off by the edge of the window').toBeLessThanOrEqual(
+        layout.viewport,
+      );
+    }
+    // They share the room: all alike, and none narrower than the 14rem (224px) minimum.
+    const widths = layout.columns.map((column) => Math.round(column.width));
+    expect(Math.min(...widths)).toBeGreaterThanOrEqual(224);
+    expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(1);
+  });
+
+  test('each column carries the heat of its status', async ({ page }) => {
+    await signInAs(page, 'owner');
+    await openBoard(page);
+
+    const heats: [string, string][] = [
+      ['Cold Steel', 'cold'],
+      ['Warming', 'warming'],
+      ['In the Forge', 'forge'],
+      ['Tempering', 'tempering'],
+      ['Blocked', 'blocked'],
+      ['Quenched', 'quenched'],
+    ];
+    for (const [name, heat] of heats) {
+      await expect(column(page, name)).toHaveAttribute('data-heat', heat);
+      // The status symbol in the column's header carries it too, as a shape as well as a colour.
+      await expect(column(page, name).locator('header svg')).toHaveAttribute('data-heat', heat);
+    }
+  });
+
+  test('a card shows its comment count and priority', async ({ page }) => {
+    await signInAs(page, 'developer');
+    const viewer = await viewerOf(page);
+    const acme = viewer.memberships.find((m) => m.organisation.slug === 'acme')!.organisation.id;
+    const detail = async () =>
+      (await (await page.request.get(`/api/v1/orgs/${acme}/tickets/WEB-5`)).json()) as {
+        commentCount: number;
+      };
+    const before = (await detail()).commentCount;
+    for (const body of ['First', 'Second']) {
+      const posted = await page.request.post(`/api/v1/orgs/${acme}/tickets/WEB-5/comments`, {
+        data: { body },
+      });
+      expect(posted.status()).toBe(201);
+    }
+    expect((await detail()).commentCount).toBe(before + 2);
+
+    await openBoard(page);
+    await expect(card(page, 'WEB-5').getByTitle(`${before + 2} comments`)).toBeVisible();
+    // WEB-3 is Critical; the name is there for a screen reader, next to the bars.
+    await expect(card(page, 'WEB-3')).toContainText('Priority: Critical');
+    // A ticket nobody has commented on shows no count at all.
+    await expect(card(page, 'WEB-12').getByTitle(/comments?$/)).toHaveCount(0);
+  });
+
+  test('awkward titles never widen a column or the page', async ({ page }) => {
+    await signInAs(page, 'developer');
+    const viewer = await viewerOf(page);
+    const acme = viewer.memberships.find((m) => m.organisation.slug === 'acme')!.organisation.id;
+    const config = (await (
+      await page.request.get(`/api/v1/orgs/${acme}/ticket-config`)
+    ).json()) as {
+      types: { id: string }[];
+      priorities: { id: string }[];
+    };
+
+    const titles = [
+      'W'.repeat(200),
+      'مشكلة في صفحة الدفع على الهاتف المحمول',
+      '🔥 Fix the forge 🔨 '.repeat(8).trim(),
+    ];
+    const keys: string[] = [];
+    for (const title of titles) {
+      const created = await page.request.post(`/api/v1/orgs/${acme}/projects/WEB/tickets`, {
+        data: { title, typeId: config.types[0]!.id, priorityId: config.priorities[0]!.id },
+      });
+      expect(created.status()).toBe(201);
+      keys.push(((await created.json()) as { key: string }).key);
+    }
+
+    await openBoard(page);
+    for (const key of keys) {
+      const target = card(page, key);
+      await expect(target).toBeVisible();
+      const fits = await target.evaluate((element) => element.scrollWidth <= element.clientWidth);
+      expect(fits, `${key} stays inside its card`).toBe(true);
+      // The title wraps inside the card instead of being cut off at its edge.
+      const wraps = await target
+        .locator('a')
+        .first()
+        .evaluate((link) => link.scrollWidth <= link.clientWidth);
+      expect(wraps, `${key}'s title wraps instead of running off the card`).toBe(true);
+    }
+    const pageFits = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    );
+    expect(pageFits, 'the page does not scroll sideways').toBe(true);
   });
 
   test('a card dragged to another column stays there after a reload', async ({ page }) => {
     await signInAs(page, 'developer');
     await openBoard(page);
-    await expect(column(page, 'In Review').locator('li[data-ticket="WEB-3"]')).toBeVisible();
+    await expect(column(page, 'Tempering').locator('li[data-ticket="WEB-3"]')).toBeVisible();
 
     await dragCard(page, 'WEB-3', 'Blocked');
     await expect(column(page, 'Blocked').locator('li[data-ticket="WEB-3"]')).toBeVisible();
     await expect(column(page, 'Blocked')).toHaveAttribute('aria-label', 'Blocked, 2 tickets');
-    await expect(column(page, 'In Review')).toHaveAttribute('aria-label', 'In Review, 0 tickets');
+    await expect(column(page, 'Tempering')).toHaveAttribute('aria-label', 'Tempering, 0 tickets');
 
     await page.reload();
     await expect(column(page, 'Blocked').locator('li[data-ticket="WEB-3"]')).toBeVisible();
@@ -67,14 +183,14 @@ test.describe('the board', () => {
     await page.goto('/w/acme/tickets/WEB-3');
     await expect(page.getByLabel('Status').locator('option:checked')).toHaveText('Blocked');
     await expect(page.getByRole('region', { name: 'Activity' })).toContainText(
-      'moved this from In Review to Blocked',
+      'moved this from Tempering to Blocked',
     );
   });
 
   test('a card can be moved with the keyboard alone', async ({ page }) => {
     await signInAs(page, 'developer');
     await openBoard(page);
-    await expect(column(page, 'In Progress').locator('li[data-ticket="WEB-1"]')).toBeVisible();
+    await expect(column(page, 'In the Forge').locator('li[data-ticket="WEB-1"]')).toBeVisible();
 
     // What a screen reader is told, step by step. Waiting for each announcement also gives the
     // drag time to get ready, which a person's pace does and a script's does not.
@@ -82,16 +198,19 @@ test.describe('the board', () => {
 
     await page.getByRole('button', { name: 'Pick up WEB-1 to move it' }).focus();
     await page.keyboard.press('Space');
-    await expect(announcement).toHaveText('WEB-1 is over In Progress.');
-    // The next column to the right that will take it is In Review.
+    await expect(announcement).toHaveText('WEB-1 is over In the Forge.');
+    // The columns know which of them will take the card a moment after it is picked up; Cold Steel
+    // being marked as refusing it shows they do. A person is slower than this.
+    await expect(column(page, 'Cold Steel')).toHaveAttribute('title', /cannot move to Cold Steel/);
+    // The next column to the right that will take it is Tempering.
     await page.keyboard.press('ArrowRight');
-    await expect(announcement).toHaveText('WEB-1 is over In Review.');
+    await expect(announcement).toHaveText('WEB-1 is over Tempering.');
     await page.keyboard.press('Space');
-    await expect(announcement).toHaveText('WEB-1 dropped on In Review.');
+    await expect(announcement).toHaveText('WEB-1 dropped on Tempering.');
 
-    await expect(column(page, 'In Review').locator('li[data-ticket="WEB-1"]')).toBeVisible();
+    await expect(column(page, 'Tempering').locator('li[data-ticket="WEB-1"]')).toBeVisible();
     await page.reload();
-    await expect(column(page, 'In Review').locator('li[data-ticket="WEB-1"]')).toBeVisible();
+    await expect(column(page, 'Tempering').locator('li[data-ticket="WEB-1"]')).toBeVisible();
   });
 
   test('"Move to" does the same without dragging, offering only allowed statuses', async ({
@@ -100,17 +219,18 @@ test.describe('the board', () => {
     await signInAs(page, 'developer');
     await openBoard(page);
 
-    await page.getByRole('button', { name: 'Move WEB-2 to another status' }).click();
+    await actionsButton(page, 'WEB-2').click();
+    await actionsMenu(page, 'WEB-2').getByRole('button', { name: 'Move to…' }).click();
     const menu = page.getByRole('group', { name: 'Move WEB-2 to' });
     await expect(menu.getByRole('button')).toHaveText([
-      'Backlog',
-      'In Progress',
+      'Cold Steel',
+      'In the Forge',
       'Blocked',
-      'Cancelled',
+      'Scrapped',
     ]);
-    await menu.getByRole('button', { name: 'In Progress' }).click();
+    await menu.getByRole('button', { name: 'In the Forge' }).click();
 
-    await expect(column(page, 'In Progress').locator('li[data-ticket="WEB-2"]')).toBeVisible();
+    await expect(column(page, 'In the Forge').locator('li[data-ticket="WEB-2"]')).toBeVisible();
   });
 
   test('a move the workflow does not allow is refused with a reason, and the card stays', async ({
@@ -119,13 +239,13 @@ test.describe('the board', () => {
     await signInAs(page, 'developer');
     await openBoard(page);
 
-    await dragCard(page, 'WEB-3', 'Backlog'); // In Review cannot go straight to Backlog
-    await expect(page.getByText('WEB-3 cannot move from In Review to Backlog.')).toBeVisible();
-    await expect(column(page, 'In Review').locator('li[data-ticket="WEB-3"]')).toBeVisible();
-    await expect(column(page, 'Backlog')).toHaveAttribute('aria-label', 'Backlog, 2 tickets');
+    await dragCard(page, 'WEB-3', 'Cold Steel'); // Tempering cannot go straight to Cold Steel
+    await expect(page.getByText('WEB-3 cannot move from Tempering to Cold Steel.')).toBeVisible();
+    await expect(column(page, 'Tempering').locator('li[data-ticket="WEB-3"]')).toBeVisible();
+    await expect(column(page, 'Cold Steel')).toHaveAttribute('aria-label', 'Cold Steel, 2 tickets');
 
     await page.reload();
-    await expect(column(page, 'In Review').locator('li[data-ticket="WEB-3"]')).toBeVisible();
+    await expect(column(page, 'Tempering').locator('li[data-ticket="WEB-3"]')).toBeVisible();
   });
 
   test('a card someone else already moved is put right instead of being overwritten', async ({
@@ -145,11 +265,11 @@ test.describe('the board', () => {
     });
     expect(moved.status()).toBe(200);
 
-    // This page still shows it in In Review, and the drag uses that old version.
-    await dragCard(page, 'WEB-3', 'In Progress');
+    // This page still shows it in Tempering, and the drag uses that old version.
+    await dragCard(page, 'WEB-3', 'In the Forge');
     await expect(page.getByText(/changed by someone else/)).toBeVisible();
     await expect(column(page, 'Blocked').locator('li[data-ticket="WEB-3"]')).toBeVisible();
-    await expect(column(page, 'In Progress').locator('li[data-ticket="WEB-3"]')).toHaveCount(0);
+    await expect(column(page, 'In the Forge').locator('li[data-ticket="WEB-3"]')).toHaveCount(0);
   });
 
   test('a read-only member can look but has nothing to grab', async ({ page }) => {
@@ -158,7 +278,12 @@ test.describe('the board', () => {
 
     await expect(card(page, 'WEB-3')).toBeVisible();
     await expect(page.getByRole('button', { name: /Pick up/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /to another status/ })).toHaveCount(0);
+    // Nothing that changes a ticket: the card's menu holds only the copies.
+    await actionsButton(page, 'WEB-3').click();
+    await expect(actionsMenu(page, 'WEB-3').getByRole('button')).toHaveText([
+      'Copy key',
+      'Copy link',
+    ]);
   });
 
   test('a filter narrows every column, and the status columns do not change', async ({ page }) => {
@@ -169,7 +294,7 @@ test.describe('the board', () => {
     await expect(card(page, 'WEB-1')).toBeVisible();
     await expect(card(page, 'WEB-7')).toBeVisible();
     await expect(card(page, 'WEB-2')).toHaveCount(0);
-    await expect(column(page, 'Backlog')).toHaveAttribute('aria-label', 'Backlog, 0 tickets');
+    await expect(column(page, 'Cold Steel')).toHaveAttribute('aria-label', 'Cold Steel, 0 tickets');
     await expect(page.getByRole('button', { name: 'Remove filter Assignee: Me' })).toBeVisible();
   });
 
@@ -186,5 +311,560 @@ test.describe('the board', () => {
     await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
     await expect(page.getByText('WEB-3')).toHaveCount(0);
     await expect(page.getByText('Checkout page')).toHaveCount(0);
+  });
+});
+
+// What the Display menu changes is saved to the person's account, so each test waits for the save
+// to finish before it reloads or switches person.
+const saved = (page: Page) =>
+  page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/v1/me/preferences') && response.request().method() === 'PATCH',
+  );
+
+async function openDisplay(page: Page) {
+  await page.getByRole('button', { name: 'Display', exact: true }).click();
+  await expect(page.getByRole('switch', { name: 'Due date' })).toBeVisible();
+}
+
+async function flip(page: Page, name: string) {
+  await Promise.all([saved(page), page.getByRole('switch', { name }).click()]);
+}
+
+test.describe('the Display menu', () => {
+  test('turning a field off removes it from every card and is remembered', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    await expect(card(page, 'WEB-3')).toContainText('Tomorrow');
+
+    await openDisplay(page);
+    await flip(page, 'Due date');
+    await expect(page.getByRole('switch', { name: 'Due date' })).not.toBeChecked();
+    await expect(card(page, 'WEB-3')).not.toContainText('Tomorrow');
+    await expect(card(page, 'WEB-1')).not.toContainText('overdue');
+
+    await page.reload();
+    await hydrated(page);
+    await expect(card(page, 'WEB-3')).toBeVisible();
+    await expect(card(page, 'WEB-3')).not.toContainText('Tomorrow');
+  });
+
+  test('settings belong to the person, not to the board', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    await openDisplay(page);
+    await flip(page, 'Due date');
+
+    await switchTo(page, 'owner');
+    await openBoard(page);
+    await expect(card(page, 'WEB-3')).toContainText('Tomorrow');
+  });
+
+  test('a read-only member can use the Display menu', async ({ page }) => {
+    await signInAs(page, 'readonly');
+    await openBoard(page);
+    await expect(card(page, 'WEB-3').locator('.label-chip').first()).toBeVisible();
+
+    await openDisplay(page);
+    await flip(page, 'Labels');
+    await expect(card(page, 'WEB-3').locator('.label-chip')).toHaveCount(0);
+
+    const stored = await (await page.request.get('/api/v1/me/preferences')).json();
+    expect(stored).toEqual({ board: { fields: { labels: false } } });
+  });
+
+  test('compact density is applied on the first paint', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    await openDisplay(page);
+    await Promise.all([saved(page), page.getByText('Compact', { exact: true }).click()]);
+    await expect(page.locator('[data-density="compact"]')).toBeVisible();
+
+    // The server already knows: the very first HTML it sends carries the setting.
+    const html = await (await page.request.get('/w/acme/projects/WEB/board')).text();
+    expect(html).toContain('data-density="compact"');
+    expect(html).not.toContain('data-density="comfortable"');
+  });
+
+  test('heat can be turned off, and the columns go neutral', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    const edge = () =>
+      column(page, 'Tempering').evaluate((element) => getComputedStyle(element).borderTopColor);
+    expect(await edge()).toBe('rgb(242, 193, 78)');
+
+    await openDisplay(page);
+    await flip(page, 'Heat colours on columns');
+    await expect.poll(edge).toBe('rgba(0, 0, 0, 0)');
+    // The status symbol and its name are still there.
+    await expect(column(page, 'Tempering').locator('header svg')).toHaveAttribute(
+      'data-heat',
+      'tempering',
+    );
+  });
+
+  test('"Reset to default" puts everything back', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    await openDisplay(page);
+    await flip(page, 'Due date');
+    await flip(page, 'Heat colours on columns');
+    await Promise.all([saved(page), page.getByText('Compact', { exact: true }).click()]);
+
+    await Promise.all([
+      saved(page),
+      page.getByRole('button', { name: 'Reset to default' }).click(),
+    ]);
+    await expect(page.getByRole('switch', { name: 'Due date' })).toBeChecked();
+    await expect(page.getByRole('switch', { name: 'Heat colours on columns' })).toBeChecked();
+    await expect(page.locator('[data-density="comfortable"]')).toBeVisible();
+
+    await page.reload();
+    await hydrated(page);
+    await expect(card(page, 'WEB-3')).toContainText('Tomorrow');
+  });
+});
+
+test.describe('board columns', () => {
+  const headings = (page: Page) => page.locator('section[data-heat] h2');
+
+  test('Scrapped is hidden by default and can be shown', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    await expect(column(page, 'Scrapped')).toHaveCount(0);
+
+    await openDisplay(page);
+    await expect(page.getByRole('switch', { name: 'Show Scrapped' })).not.toBeChecked();
+    await flip(page, 'Show Scrapped');
+    await expect(column(page, 'Scrapped')).toHaveAttribute('aria-label', 'Scrapped, 1 ticket');
+  });
+
+  test('hiding a column removes it and is remembered after a reload', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    await expect(column(page, 'Blocked')).toBeVisible();
+
+    await openDisplay(page);
+    await flip(page, 'Show Blocked');
+    await expect(column(page, 'Blocked')).toHaveCount(0);
+
+    await page.reload();
+    await hydrated(page);
+    await expect(column(page, 'Tempering')).toBeVisible();
+    await expect(column(page, 'Blocked')).toHaveCount(0);
+    await openDisplay(page);
+    await expect(page.getByRole('switch', { name: 'Show Blocked' })).not.toBeChecked();
+  });
+
+  test('a column can be moved with the buttons and keeps its place after a reload', async ({
+    page,
+  }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    const normal = ['Cold Steel', 'Warming', 'In the Forge', 'Tempering', 'Blocked', 'Quenched'];
+    await expect(headings(page)).toHaveText(normal);
+
+    await openDisplay(page);
+    await Promise.all([
+      saved(page),
+      page.getByRole('button', { name: 'Move Quenched up' }).click(),
+    ]);
+    const moved = ['Cold Steel', 'Warming', 'In the Forge', 'Tempering', 'Quenched', 'Blocked'];
+    await expect(headings(page)).toHaveText(moved);
+
+    await page.reload();
+    await hydrated(page);
+    await expect(headings(page)).toHaveText(moved);
+
+    // The first one cannot go further up, and the last cannot go further down.
+    await openDisplay(page);
+    await expect(page.getByRole('button', { name: 'Move Cold Steel up' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Move Scrapped down' })).toBeDisabled();
+  });
+
+  test('column choices are separate for each project', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    await openDisplay(page);
+    await flip(page, 'Show Blocked');
+    await expect(column(page, 'Blocked')).toHaveCount(0);
+
+    await page.goto('/w/acme/projects/API/board');
+    await expect(page.getByRole('heading', { name: 'Platform API', level: 1 })).toBeVisible();
+    await hydrated(page);
+    await expect(column(page, 'Blocked')).toBeVisible();
+  });
+
+  test('when every column is hidden the board says so, and the way back works', async ({
+    page,
+  }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    await openDisplay(page);
+    for (const name of [
+      'Cold Steel',
+      'Warming',
+      'In the Forge',
+      'Tempering',
+      'Blocked',
+      'Quenched',
+    ]) {
+      await flip(page, `Show ${name}`);
+    }
+    await expect(
+      page.getByText('Every column is hidden. Open Display to show some.'),
+    ).toBeVisible();
+    await expect(page.locator('section[data-heat]')).toHaveCount(0);
+
+    await flip(page, 'Show Warming');
+    await expect(column(page, 'Warming')).toBeVisible();
+    await expect(page.getByText('Every column is hidden.')).toHaveCount(0);
+  });
+
+  test('moving a ticket into a status that is hidden says where it went', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    await openDisplay(page);
+    await flip(page, 'Show Blocked');
+    await page.keyboard.press('Escape');
+
+    await actionsButton(page, 'WEB-2').click();
+    await actionsMenu(page, 'WEB-2').getByRole('button', { name: 'Move to…' }).click();
+    await page
+      .getByRole('group', { name: 'Move WEB-2 to' })
+      .getByRole('button', { name: 'Blocked' })
+      .click();
+
+    await expect(
+      page.getByText('WEB-2 moved to Blocked, which is hidden on your board.'),
+    ).toBeVisible();
+    await expect(card(page, 'WEB-2')).toHaveCount(0);
+
+    // Nothing is lost: the ticket is where the list says it is.
+    await page.goto('/w/acme/projects/WEB/list');
+    await expect(page.getByRole('row', { name: /WEB-2/ })).toContainText('Blocked');
+  });
+
+  test('dragging and the keyboard work with columns hidden, and skip them', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    await openDisplay(page);
+    await flip(page, 'Show Warming');
+    await flip(page, 'Show Tempering');
+    await page.keyboard.press('Escape');
+
+    // With the mouse: WEB-1 goes from In the Forge straight to Blocked.
+    await dragCard(page, 'WEB-1', 'Blocked');
+    await expect(column(page, 'Blocked').locator('li[data-ticket="WEB-1"]')).toBeVisible();
+
+    // With the keyboard: WEB-5 is in the Forge; Tempering is hidden, so the next column to the
+    // right that takes it is Blocked.
+    const announcement = page.locator('[id^="DndLiveRegion"]');
+    const grip = page.getByRole('button', { name: 'Pick up WEB-5 to move it' });
+    // Grips are switched off while the first move is being saved; wait for it to finish.
+    await expect(grip).toBeEnabled();
+    // ...and for the page refresh that follows a move, which would otherwise redraw mid-drag.
+    await page.waitForLoadState('networkidle');
+    await grip.focus();
+    await page.keyboard.press('Space');
+    await expect(announcement).toHaveText('WEB-5 is over In the Forge.');
+    // The columns know which of them will take the card a moment after it is picked up: Cold
+    // Steel refusing it (it is marked as such) shows they do. A person is slower than this.
+    await expect(column(page, 'Cold Steel')).toHaveAttribute('title', /cannot move to Cold Steel/);
+    await page.keyboard.press('ArrowRight');
+    await expect(announcement).toHaveText('WEB-5 is over Blocked.');
+    await page.keyboard.press('Space');
+    await expect(announcement).toHaveText('WEB-5 dropped on Blocked.');
+    await expect(column(page, 'Blocked').locator('li[data-ticket="WEB-5"]')).toBeVisible();
+  });
+});
+
+const addButton = (page: Page, name: string) =>
+  page.getByRole('button', { name: `Add a ticket to ${name}` });
+const titleBox = (page: Page) => page.getByLabel('New ticket title');
+
+async function ticketOf(page: Page, key: string) {
+  const viewer = await viewerOf(page);
+  const acme = viewer.memberships.find((m) => m.organisation.slug === 'acme')!.organisation.id;
+  const response = await page.request.get(`/api/v1/orgs/${acme}/tickets/${key}`);
+  expect(response.status()).toBe(200);
+  return (await response.json()) as {
+    status: { name: string };
+    type: { key: string };
+    priority: { name: string };
+    assignee: { displayName: string } | null;
+    archivedAt: string | null;
+  };
+}
+
+/** Records every request that tries to create a ticket. */
+function watchCreates(page: Page) {
+  const posts: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && /\/projects\/[^/]+\/tickets$/.test(request.url())) {
+      posts.push(request.url());
+    }
+  });
+  return posts;
+}
+
+test.describe('quick create in a column', () => {
+  test('adds a ticket at the top of that column, in that status, and it survives a reload', async ({
+    page,
+  }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+
+    await addButton(page, 'Tempering').click();
+    await expect(titleBox(page)).toBeFocused();
+    await page.keyboard.type('Check the quench tank');
+    await page.keyboard.press('Enter');
+
+    const tempering = column(page, 'Tempering');
+    await expect(tempering).toHaveAttribute('aria-label', 'Tempering, 2 tickets');
+    await expect(tempering.locator('li[data-ticket]').first()).toContainText(
+      'Check the quench tank',
+    );
+    await expect(tempering.locator('li[data-ticket="WEB-13"]')).toBeVisible();
+    await expect(page.getByText('Created WEB-13.')).toBeVisible();
+
+    await page.reload();
+    await expect(column(page, 'Tempering').locator('li[data-ticket="WEB-13"]')).toContainText(
+      'Check the quench tank',
+    );
+
+    // Made the way a quick ticket is: Task, Normal, in the column's status.
+    const made = await ticketOf(page, 'WEB-13');
+    expect(made.status.name).toBe('Tempering');
+    expect(made.type.key).toBe('task');
+    expect(made.priority.name).toBe('Normal');
+  });
+
+  test('Escape closes the form without creating anything', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    const posts = watchCreates(page);
+
+    await addButton(page, 'Tempering').click();
+    await page.keyboard.type('Never mind');
+    await page.keyboard.press('Escape');
+
+    await expect(titleBox(page)).toHaveCount(0);
+    await expect(addButton(page, 'Tempering')).toBeFocused();
+    await expect(column(page, 'Tempering')).toHaveAttribute('aria-label', 'Tempering, 1 ticket');
+    expect(posts).toHaveLength(0);
+  });
+
+  test('an empty title is not sent', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    const posts = watchCreates(page);
+
+    await addButton(page, 'Tempering').click();
+    await page.keyboard.type('   ');
+    await page.keyboard.press('Enter');
+
+    await expect(page.getByText('Give the ticket a title.')).toBeVisible();
+    await expect(titleBox(page)).toBeFocused();
+    expect(posts).toHaveLength(0);
+    await expect(column(page, 'Tempering')).toHaveAttribute('aria-label', 'Tempering, 1 ticket');
+  });
+
+  test('someone who cannot create tickets gets no plus', async ({ page }) => {
+    await signInAs(page, 'readonly');
+    await openBoard(page);
+    await expect(column(page, 'Tempering')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Add a ticket to / })).toHaveCount(0);
+  });
+});
+
+test.describe('the card menu', () => {
+  test('Priority changes the ticket and its bars', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    await expect(card(page, 'WEB-3')).toContainText('Priority: Critical');
+
+    await actionsButton(page, 'WEB-3').click();
+    await actionsMenu(page, 'WEB-3').getByRole('button', { name: 'Priority…' }).click();
+    await page
+      .getByRole('group', { name: 'Priority for WEB-3' })
+      .getByRole('button', { name: 'High', exact: true })
+      .click();
+
+    await expect(card(page, 'WEB-3')).toContainText('Priority: High');
+    expect((await ticketOf(page, 'WEB-3')).priority.name).toBe('High');
+  });
+
+  test('Assign to me puts the person on the card, and Unassign takes them off', async ({
+    page,
+  }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    await expect(card(page, 'WEB-4').getByTitle('Unassigned')).toBeVisible();
+
+    await actionsButton(page, 'WEB-4').click();
+    await actionsMenu(page, 'WEB-4').getByRole('button', { name: 'Assign to me' }).click();
+    await expect(card(page, 'WEB-4').getByTitle('Dana Developer')).toBeVisible();
+    expect((await ticketOf(page, 'WEB-4')).assignee?.displayName).toBe('Dana Developer');
+
+    await actionsButton(page, 'WEB-4').click();
+    await expect(
+      actionsMenu(page, 'WEB-4').getByRole('button', { name: 'Assign to me' }),
+    ).toHaveCount(0);
+    await actionsMenu(page, 'WEB-4').getByRole('button', { name: 'Unassign' }).click();
+    await expect(card(page, 'WEB-4').getByTitle('Unassigned')).toBeVisible();
+  });
+
+  test('Assign to… offers the workspace’s members', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+
+    await actionsButton(page, 'WEB-4').click();
+    await actionsMenu(page, 'WEB-4').getByRole('button', { name: 'Assign to…' }).click();
+    await page
+      .getByRole('group', { name: 'Assign WEB-4 to' })
+      .getByRole('button', { name: /Adam Admin/ })
+      .click();
+
+    await expect(card(page, 'WEB-4').getByTitle('Adam Admin')).toBeVisible();
+    expect((await ticketOf(page, 'WEB-4')).assignee?.displayName).toBe('Adam Admin');
+  });
+
+  test('Archive removes the card and says so', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+
+    await actionsButton(page, 'WEB-3').click();
+    await actionsMenu(page, 'WEB-3').getByRole('button', { name: 'Archive' }).click();
+
+    await expect(page.getByText('Archived WEB-3.')).toBeVisible();
+    await expect(card(page, 'WEB-3')).toHaveCount(0);
+    await expect(column(page, 'Tempering')).toHaveAttribute('aria-label', 'Tempering, 0 tickets');
+    expect((await ticketOf(page, 'WEB-3')).archivedAt).not.toBeNull();
+  });
+
+  test('Duplicate opens the copy', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+
+    await actionsButton(page, 'WEB-3').click();
+    await actionsMenu(page, 'WEB-3').getByRole('button', { name: 'Duplicate' }).click();
+
+    await expect(page).toHaveURL(/\/w\/acme\/tickets\/WEB-13$/);
+    await expect(page.getByText('Created WEB-13, a copy of WEB-3.')).toBeVisible();
+  });
+
+  test('Copy key and Copy link use the clipboard', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await signInAs(page, 'developer');
+    await openBoard(page);
+    const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
+
+    await actionsButton(page, 'WEB-3').click();
+    await actionsMenu(page, 'WEB-3').getByRole('button', { name: 'Copy key' }).click();
+    await expect(page.getByText('Copied WEB-3.')).toBeVisible();
+    expect(await clipboard()).toBe('WEB-3');
+
+    await actionsButton(page, 'WEB-3').click();
+    await actionsMenu(page, 'WEB-3').getByRole('button', { name: 'Copy link' }).click();
+    await expect(page.getByText('Copied the link to WEB-3.')).toBeVisible();
+    expect(await clipboard()).toBe(`${new URL(page.url()).origin}/w/acme/tickets/WEB-3`);
+  });
+
+  test('works from the keyboard, and Escape puts focus back on the button', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+
+    await actionsButton(page, 'WEB-3').focus();
+    await page.keyboard.press('Enter');
+    await expect(actionsMenu(page, 'WEB-3')).toBeVisible();
+    await expect(actionsMenu(page, 'WEB-3').getByRole('button').first()).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(actionsMenu(page, 'WEB-3')).toHaveCount(0);
+    await expect(actionsButton(page, 'WEB-3')).toBeFocused();
+  });
+
+  test('after Priority by keyboard alone, the focus is back on the card’s Actions button', async ({
+    page,
+  }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+
+    await actionsButton(page, 'WEB-3').focus();
+    await page.keyboard.press('Enter');
+    await expect(actionsMenu(page, 'WEB-3').getByRole('button').first()).toBeFocused();
+    await page.keyboard.press('Tab'); // Move to… -> Priority…
+    await expect(
+      actionsMenu(page, 'WEB-3').getByRole('button', { name: 'Priority…' }),
+    ).toBeFocused();
+    await page.keyboard.press('Enter');
+
+    // The list opens on the priority in force (Critical); High is the next one down.
+    const priorities = page.getByRole('group', { name: 'Priority for WEB-3' });
+    await expect(priorities.getByRole('button', { name: 'Critical' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(priorities.getByRole('button', { name: 'High', exact: true })).toBeFocused();
+    await page.keyboard.press('Enter');
+
+    await expect(card(page, 'WEB-3')).toContainText('Priority: High');
+    await expect(actionsButton(page, 'WEB-3')).toBeFocused();
+    expect((await ticketOf(page, 'WEB-3')).priority.name).toBe('High');
+  });
+
+  test('a list opens on the first choice when none is in force, and Back is reachable', async ({
+    page,
+  }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+
+    await actionsButton(page, 'WEB-4').click();
+    await actionsMenu(page, 'WEB-4').getByRole('button', { name: 'Assign to…' }).click();
+    const people = page.getByRole('group', { name: 'Assign WEB-4 to' });
+    await expect(people.getByRole('button').first()).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.getByRole('button', { name: 'Back' })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(actionsMenu(page, 'WEB-4')).toBeVisible();
+  });
+
+  test('after Move to… the focus follows the card to its new column', async ({ page }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+
+    await actionsButton(page, 'WEB-2').focus();
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter'); // Move to…
+    await page
+      .getByRole('group', { name: 'Move WEB-2 to' })
+      .getByRole('button', { name: 'In the Forge' })
+      .press('Enter');
+
+    await expect(column(page, 'In the Forge').locator('li[data-ticket="WEB-2"]')).toBeVisible();
+    await expect(actionsButton(page, 'WEB-2')).toBeFocused();
+  });
+
+  test('after Archive the focus goes to the column’s plus, never the top of the page', async ({
+    page,
+  }) => {
+    await signInAs(page, 'developer');
+    await openBoard(page);
+
+    await actionsButton(page, 'WEB-3').focus();
+    await page.keyboard.press('Enter');
+    await actionsMenu(page, 'WEB-3').getByRole('button', { name: 'Archive' }).press('Enter');
+
+    await expect(card(page, 'WEB-3')).toHaveCount(0);
+    await expect(addButton(page, 'Tempering')).toBeFocused();
+  });
+
+  test('a read-only member is offered only the copies', async ({ page }) => {
+    await signInAs(page, 'readonly');
+    await openBoard(page);
+
+    await actionsButton(page, 'WEB-3').click();
+    await expect(actionsMenu(page, 'WEB-3').getByRole('button')).toHaveText([
+      'Copy key',
+      'Copy link',
+    ]);
   });
 });

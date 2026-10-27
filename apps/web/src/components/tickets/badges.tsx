@@ -12,21 +12,17 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react';
-import { formatDueDate, priorityIntensity, statusTone, type StatusTone } from '@/lib/tickets';
+import { glyphShapeOf, HEAT_COLOURS, heatOf } from '@/lib/heat';
+import { formatDueDate, priorityIntensity } from '@/lib/tickets';
 
 // One vocabulary for the three things every ticket row shows. Each carries a shape and a word, so
 // none of them depends on colour alone.
 
-const TONE_CLASS: Record<StatusTone, string> = {
-  idle: 'text-muted',
-  active: 'text-active',
-  done: 'text-ok',
-};
-
 /**
- * Empty ring, half-filled ring, or filled disc with a tick: not started, under way, finished.
- * A cancelled status is finished too, but it is not a success, so it gets a struck-through ring
- * in the quiet colour instead of the green tick.
+ * The symbol and colour of a status come from its heat (see `heat.ts`): a dashed ring for cold
+ * steel, a ring for warming, a half-filled ring for the forge and tempering, a barred ring for
+ * blocked, a tick for quenched and a struck ring for scrapped. Shape and name carry the meaning,
+ * so colour is never the only signal.
  */
 export function StatusGlyph({
   category,
@@ -37,30 +33,19 @@ export function StatusGlyph({
   statusKey?: string;
   size?: number;
 }) {
-  const tone = statusTone(category);
-  if (statusKey === 'cancelled') {
-    return (
-      <svg
-        width={size}
-        height={size}
-        viewBox="0 0 14 14"
-        aria-hidden="true"
-        className="shrink-0 text-muted"
-      >
-        <circle cx="7" cy="7" r="5.25" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M4.6 9.4 9.4 4.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    );
-  }
+  const token = heatOf({ key: statusKey ?? '', category });
+  const shape = glyphShapeOf(token);
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 14 14"
       aria-hidden="true"
-      className={`shrink-0 ${TONE_CLASS[tone]}`}
+      data-heat={token}
+      className="shrink-0"
+      style={{ color: HEAT_COLOURS[token] }}
     >
-      {tone === 'done' ? (
+      {shape === 'tick' ? (
         <>
           <circle cx="7" cy="7" r="6" fill="currentColor" />
           <path
@@ -74,8 +59,29 @@ export function StatusGlyph({
         </>
       ) : (
         <>
-          <circle cx="7" cy="7" r="5.25" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          {tone === 'active' && <path d="M7 1.75a5.25 5.25 0 0 1 0 10.5Z" fill="currentColor" />}
+          <circle
+            cx="7"
+            cy="7"
+            r="5.25"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            {...(shape === 'dashed-ring' ? { strokeDasharray: '2.6 2' } : {})}
+          />
+          {shape === 'half-ring' && (
+            <path d="M7 1.75a5.25 5.25 0 0 1 0 10.5Z" fill="currentColor" />
+          )}
+          {shape === 'barred-ring' && (
+            <path d="M4.5 7h5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          )}
+          {shape === 'struck-ring' && (
+            <path
+              d="M4.6 9.4 9.4 4.6"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          )}
         </>
       )}
     </svg>
