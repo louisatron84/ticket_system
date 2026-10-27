@@ -313,6 +313,11 @@ Built into the ticket plan now so that repositories and the CLI do not force rew
   back to **the status it had before**, so the ticket must remember it; (d) system-made changes
   recorded in the ticket's history with the rule that made them. The full rules are in
   [The security gate](#the-security-gate-built-with-the-repository-system).
+- **Code in the ticket (owner's idea, restated 2026-10-27).** A ticket shows the code its work
+  touches, and that code can be edited directly inside the ticket; the edit becomes real when the
+  ticket's work is merged (welded), through the same security gate as any merge. So the ticket page
+  keeps its shape (main column on the left for the description and other content, details on the
+  right), and the main column must have room for a Code section later.
 - **CLI** needs every action as an API route (a rule of this plan), the shared query parser (P7),
   JSON output from stable shapes, and **API access tokens**. The product only has cookie sessions
   today, so a token system is a dependency for step 4. It will be planned with the sign-in method,
@@ -369,6 +374,42 @@ remembers the status it had before Blocked (P2); history entries made by the sys
 them (P2); a guard "no open blockers" that any action can ask, not only completion (P2/P4); a
 completed-status hook that rules can listen to (P8); a "source" on tickets so a ticket made by a scan
 is marked as such (P2).
+
+## The CLI (step 4 of the overall roadmap)
+
+The owner named the first commands on 2026-10-27 ("let's leave it at this for now"; more will be
+added later). The ticket commands can be built once the ticket system is done; the repository ones
+(`heat`, `blaze`, `weld`) come with the repository system. Every command calls the same API the
+screens use, so permissions, workflows and the security gate apply exactly as they do on the web.
+
+| Command                           | Does                                                             |
+| --------------------------------- | ---------------------------------------------------------------- |
+| `forge strike "title"`            | Creates a ticket                                                 |
+| `forge catalogue`, `forge cat`    | Lists tickets                                                    |
+| `forge inspect <ticket>`          | Opens a ticket                                                   |
+| `forge <column> <ticket>`         | Moves a ticket to that column, e.g. `forge warming WEB-1`        |
+| `forge scrap <ticket>`            | Moves a ticket to Scrapped (it can come back; nothing is erased) |
+| `forge rekindle`, `forge rk`      | Reopens a ticket                                                 |
+| `forge claim <ticket>`            | Assigns the ticket to you                                        |
+| `forge rate <ticket> <priority>`  | Sets the priority, e.g. `forge rate WEB-1 blaze`                 |
+| `forge heat`                      | Stages changes, like `git add`                                   |
+| `forge blaze`                     | Commits, like `git commit`                                       |
+| `forge weld`                      | Forge's merge, guarded by the security gate                      |
+
+A move made with `forge <column>` follows the ticket's workflow like any other move, so a ticket
+held by the security gate cannot be moved past it from the command line either.
+
+Open points, to settle when the CLI is designed:
+
+- **Ticket identifiers.** The owner's example used `ID0001`. Tickets already have a key that is
+  unique in the workspace (`WEB-1`); the CLI could use that, or Forge could add a second,
+  workspace-wide number.
+- **Column words.** Multi-word columns need one word each: proposed `cold` (Cold Steel), `warming`,
+  `forging` (In the Forge, since `forge forge` reads badly), `tempering`, `jammed`, `quenched`.
+  Scrapped is `scrap`. A column a workspace adds later gets its word from its name; a column word
+  can never take the name of a command.
+- `blaze` is both the commit command and a priority name; it is unambiguous in use (`forge rate
+  WEB-1 blaze` is a priority), but worth checking it does not confuse people.
 
 ## How each phase is run
 
