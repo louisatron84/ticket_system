@@ -133,3 +133,40 @@ describe('ticketEventSchema', () => {
     );
   });
 });
+
+describe('describeTicketEvent for structure', () => {
+  it.each<[TicketEvent, string]>([
+    [
+      { type: 'ticket.parent_set', data: { parentKey: 'WEB-20', previousKey: null } },
+      'Dana set the parent to WEB-20',
+    ],
+    [
+      { type: 'ticket.parent_set', data: { parentKey: 'WEB-20', previousKey: 'WEB-9' } },
+      'Dana set the parent to WEB-20',
+    ],
+    [
+      { type: 'ticket.parent_set', data: { parentKey: null, previousKey: 'WEB-20' } },
+      'Dana removed the parent WEB-20',
+    ],
+    [{ type: 'ticket.child_added', data: { childKey: 'WEB-22' } }, 'Dana added WEB-22 as a child'],
+    [
+      { type: 'ticket.child_removed', data: { childKey: 'WEB-22' } },
+      'Dana removed WEB-22 from its children',
+    ],
+    [
+      { type: 'link.added', data: { label: 'Blocked by', otherKey: 'API-4' } },
+      'Dana added a link: blocked by API-4',
+    ],
+    [
+      { type: 'link.removed', data: { label: 'Blocked by', otherKey: 'API-4' } },
+      'Dana removed a link: blocked by API-4',
+    ],
+    [
+      { type: 'ticket.marked_duplicate', data: { originalKey: 'WEB-3' } },
+      'Dana marked this as a duplicate of WEB-3',
+    ],
+  ])('describes %j', (event, line) => {
+    expect(ticketEventSchema.parse(event)).toEqual(event);
+    expect(describeAs(event)).toBe(line);
+  });
+});

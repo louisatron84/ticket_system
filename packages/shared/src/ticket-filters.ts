@@ -4,6 +4,7 @@ import {
   STATUS_CATEGORIES,
   STATUS_KEY_PATTERN,
   hasControlCharacter,
+  parseTicketKey,
   singleLineText,
 } from './tickets';
 
@@ -14,6 +15,16 @@ const projectFilter = z
   .string()
   .transform((value) => value.toUpperCase())
   .pipe(z.string().regex(PROJECT_KEY_PATTERN, 'Not a valid project key.'));
+
+/** A ticket key in canonical form (`web-5` reads as `WEB-5`). */
+const ticketKeyFilter = z.string().transform((value, context) => {
+  const parsed = parseTicketKey(value);
+  if (parsed) return `${parsed.projectKey}-${parsed.number}`;
+  context.addIssue({ code: 'custom', message: 'Not a valid ticket key.' });
+  return z.NEVER;
+});
+
+export const BLOCKED_FILTERS = ['yes', 'no'] as const;
 
 export const TICKET_SORTS = ['updated', 'created', 'priority', 'due', 'key'] as const;
 export const DUE_FILTERS = ['overdue', 'today', 'week', 'none'] as const;
@@ -49,6 +60,18 @@ export const ticketFilterSchema = z.strictObject({
   dir: z.enum(['asc', 'desc']).default('desc'),
   page: z.number().int().min(1).max(10_000).default(1),
   pageSize: z.number().int().min(1).max(100).default(50),
+  /** Tickets directly under this one. */
+  parent: ticketKeyFilter.optional(),
+  /** Tickets anywhere under this epic. */
+  epic: ticketKeyFilter.optional(),
+  /** Tickets with any link to this one. */
+  linked: ticketKeyFilter.optional(),
+  /** With (yes) or without (no) an open blocker; a completed ticket never counts as blocked. */
+  blocked: z.enum(BLOCKED_FILTERS).optional(),
+  /** Only tickets with no parent. */
+  top: z.boolean().default(false),
+  /** The list nests children under their parents. */
+  tree: z.boolean().default(false),
 });
 export type TicketFilters = z.infer<typeof ticketFilterSchema>;
 
@@ -62,7 +85,22 @@ const ARRAY_FIELDS = [
   'reporter',
   'label',
 ] as const;
-const SCALAR_FIELDS = ['q', 'due', 'archived', 'sort', 'dir', 'page', 'pageSize'] as const;
+const SCALAR_FIELDS = [
+  'q',
+  'due',
+  'archived',
+  'sort',
+  'dir',
+  'page',
+  'pageSize',
+  'parent',
+  'epic',
+  'linked',
+  'blocked',
+  'top',
+  'tree',
+] as const;
+const BOOLEAN_FIELDS: readonly string[] = ['archived', 'top', 'tree'];
 
 type RawInput = Record<string, string | string[] | undefined>;
 
@@ -95,7 +133,7 @@ export function parseTicketFilters(
 
     if (field === 'page' || field === 'pageSize') {
       raw[field] = /^[+-]?\d+(\.\d+)?$/.test(single) ? Number(single) : single;
-    } else if (field === 'archived') {
+    } else if (BOOLEAN_FIELDS.includes(field)) {
       raw[field] = single === 'true' ? true : single === 'false' ? false : single;
     } else {
       raw[field] = single;
@@ -127,6 +165,12 @@ export function ticketFiltersToSearchParams(filters: TicketFilters): URLSearchPa
   if (filters.dir !== 'desc') params.set('dir', filters.dir);
   if (filters.page !== 1) params.set('page', String(filters.page));
   if (filters.pageSize !== 50) params.set('pageSize', String(filters.pageSize));
+  if (filters.parent) params.set('parent', filters.parent);
+  if (filters.epic) params.set('epic', filters.epic);
+  if (filters.linked) params.set('linked', filters.linked);
+  if (filters.blocked) params.set('blocked', filters.blocked);
+  if (filters.top) params.set('top', 'true');
+  if (filters.tree) params.set('tree', 'true');
   return params;
 }
 

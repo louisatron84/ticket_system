@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { preferencesSchema } from './api';
 import {
   BOARD_DENSITIES,
+  BOARD_LANES,
+  BOARD_SHOWS,
   CARD_FIELD_KEYS,
   DEFAULT_BOARD_DISPLAY,
   DEFAULT_CARD_FIELDS,
@@ -14,8 +16,15 @@ import {
 } from './board-display';
 
 describe('card fields', () => {
-  it('names the five things a card can show or hide', () => {
-    expect([...CARD_FIELD_KEYS]).toEqual(['labels', 'dueDate', 'priority', 'comments', 'type']);
+  it('names the six things a card can show or hide', () => {
+    expect([...CARD_FIELD_KEYS]).toEqual([
+      'labels',
+      'dueDate',
+      'priority',
+      'comments',
+      'criteria',
+      'type',
+    ]);
   });
 
   it('shows everything by default except the type', () => {
@@ -24,6 +33,7 @@ describe('card fields', () => {
       dueDate: true,
       priority: true,
       comments: true,
+      criteria: true,
       type: false,
     });
   });
@@ -36,7 +46,27 @@ describe('board display', () => {
       fields: DEFAULT_CARD_FIELDS,
       density: 'comfortable',
       heat: true,
+      show: 'all',
+      lanes: 'none',
     });
+  });
+
+  it('shows every ticket in no lanes by default, and remembers top-level-only and project lanes', () => {
+    expect([...BOARD_SHOWS]).toEqual(['all', 'top']);
+    expect([...BOARD_LANES]).toEqual(['none', 'project']);
+    const saved = boardDisplaySchema.parse({ show: 'top', lanes: 'project' });
+    expect(resolveBoardDisplay(saved)).toMatchObject({ show: 'top', lanes: 'project' });
+    expect(boardDisplaySchema.safeParse({ show: 'children' }).success).toBe(false);
+    expect(boardDisplaySchema.safeParse({ lanes: 'epic' }).success).toBe(false);
+  });
+
+  it('undoes a change to what is shown or to the lanes', () => {
+    const before = resolveBoardDisplay({});
+    const after = applyDisplayChange(before, { show: 'top', lanes: 'project' });
+    expect(after).toMatchObject({ show: 'top', lanes: 'project', heat: true });
+    expect(applyDisplayChange(after, undoOf(before, { show: 'top', lanes: 'project' }))).toEqual(
+      before,
+    );
   });
 
   it('accepts a partial display', () => {

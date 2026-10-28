@@ -8,12 +8,14 @@ import {
   clearFilters,
   hasActiveFilters,
   hrefFor,
+  structureChips,
   toggleFilterValue,
   withFilters,
   type FilterField,
 } from '@/lib/ticket-query';
 import { buttonClass, inputClass } from '@/lib/ui';
 import { CheckboxList, FilterPopover, RadioList, type FilterOption } from './filter-popover';
+import { StructureFilter } from './structure-filter';
 
 export type FilterOptions = {
   statusCategories: FilterOption[];
@@ -46,6 +48,7 @@ export function FilterBar({
   ignored,
   trailing,
   showStatus = true,
+  showTree = false,
 }: {
   basePath: string;
   filters: TicketFilters;
@@ -58,6 +61,8 @@ export function FilterBar({
   ignored: boolean;
   /** Saved views, aligned to the right. */
   trailing?: ReactNode;
+  /** Offer the Tree switch, which nests children under their parents (the list only). */
+  showTree?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -122,6 +127,10 @@ export function FilterBar({
       text: DUE_OPTIONS.find((option) => option.value === due)?.label ?? due,
       remove: () => go(withFilters(filters, { due: undefined })),
     });
+  }
+
+  for (const chip of structureChips(filters)) {
+    chips.push({ ...chip, remove: () => go(withFilters(filters, chip.remove)) });
   }
 
   const active = hasActiveFilters(filters, { ignoreProject: scoped });
@@ -218,6 +227,24 @@ export function FilterBar({
             onChoose={(value) => go(withFilters(filters, { due: value as TicketFilters['due'] }))}
           />
         </FilterPopover>
+
+        <StructureFilter
+          // A new address (a removed chip, the back button) starts the form afresh.
+          key={`${filters.parent}|${filters.epic}|${filters.linked}`}
+          filters={filters}
+          go={(next) => go(next)}
+        />
+        {showTree && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={filters.tree}
+            onClick={() => go(withFilters(filters, { tree: !filters.tree }))}
+            className={`${buttonClass(filters.tree ? 'secondary' : 'ghost')} h-8 px-3 text-[13px]`}
+          >
+            Tree
+          </button>
+        )}
 
         {pending && (
           <span role="status" className="text-xs text-muted">

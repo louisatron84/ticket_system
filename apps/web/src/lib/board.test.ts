@@ -4,6 +4,11 @@ import {
   allowedStatuses,
   boardReducer,
   canMoveTo,
+  dropId,
+  fitsLane,
+  lanesOf,
+  parseDropId,
+  topLevelOnly,
   isMovable,
   nextBoardState,
   statusesAcross,
@@ -74,6 +79,10 @@ const ticket = (
   dueDate: null,
   version: 1,
   commentCount: 0,
+  parentKey: null,
+  progress: null,
+  openBlockerKeys: [],
+  criteria: { done: 0, total: 0 },
   createdAt: '2030-01-01T00:00:00.000Z',
   updatedAt: '2030-01-01T00:00:00.000Z',
 });
@@ -262,5 +271,59 @@ describe('statusesAcross', () => {
   it('leaves out archived projects', () => {
     const archived = [WORKFLOWS[0]!, { ...WORKFLOWS[1]!, archived: true }];
     expect(statusesAcross(archived).map((status) => status.key)).toEqual(['open', 'doing', 'done']);
+  });
+});
+
+describe('top level only', () => {
+  it('hides cards that have a parent and takes them off the counts', () => {
+    const board = fixture();
+    board.columns[0]!.tickets[1] = { ...board.columns[0]!.tickets[1]!, parentKey: 'WEB-1' };
+    const top = topLevelOnly(deepFreeze(board));
+    expect(keysIn(top, 0)).toEqual(['WEB-1', 'API-4']);
+    expect(top.columns[0]!.total).toBe(2);
+    expect(top.columns[1]!.total).toBe(1);
+  });
+
+  it('gives back the same board when nothing has a parent', () => {
+    const board = deepFreeze(fixture());
+    expect(topLevelOnly(board)).toBe(board);
+  });
+});
+
+describe('lanes per project', () => {
+  it('makes one lane per project with tickets, in key order, each with every column', () => {
+    const lanes = lanesOf(deepFreeze(fixture()).columns);
+    expect(lanes.map((lane) => lane.project.key)).toEqual(['API', 'WEB']);
+    expect(
+      lanes[0]!.columns.map((c) => [c.status.key, c.total, c.tickets.map((t) => t.key)]),
+    ).toEqual([
+      ['open', 1, ['API-4']],
+      ['doing', 0, []],
+      ['done', 0, []],
+    ]);
+    expect(lanes[1]!.columns.map((c) => [c.status.key, c.total])).toEqual([
+      ['open', 2],
+      ['doing', 1],
+      ['done', 0],
+    ]);
+    expect(lanes[1]!.total).toBe(3);
+  });
+
+  it('keeps the order of the columns it was given, so hidden and reordered columns hold', () => {
+    const [open, doing] = fixture().columns;
+    const lanes = lanesOf([doing!, open!]);
+    expect(lanes[1]!.columns.map((c) => c.status.key)).toEqual(['doing', 'open']);
+  });
+
+  it('names a drop target by lane and status, and reads it back', () => {
+    expect(parseDropId(dropId('blocked'))).toEqual({ statusKey: 'blocked', laneKey: null });
+    expect(parseDropId(dropId('blocked', 'WEB'))).toEqual({ statusKey: 'blocked', laneKey: 'WEB' });
+  });
+
+  it('refuses a drop into another project’s lane', () => {
+    const card = ticket(1, OPEN);
+    expect(fitsLane(card, null)).toBe(true);
+    expect(fitsLane(card, 'WEB')).toBe(true);
+    expect(fitsLane(card, 'API')).toBe(false);
   });
 });

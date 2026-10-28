@@ -9,9 +9,10 @@ not listed as working in the README, assume it does not exist yet.
   session layer is built so a real login method can be added, but which one (email and password,
   GitHub OAuth, magic link) is still to be decided and built. Until then the sign-in page says
   "Sign-in isn't configured for this environment yet" wherever development sign-in is off.
-- **Stage 2, Part B.** Not started: custom fields, ticket relationships and subtasks, attachments,
+- **Stage 2, Part B.** Not started: custom fields, attachments,
   the administrator screens for editing statuses, transitions, ticket types and priorities, and
-  subscribing to a ticket. (Bulk edit, duplicate and archive arrived with P1.) A ticket cannot be
+  subscribing to a ticket. (Bulk edit, duplicate and archive arrived with P1; parents, links and
+  blockers with P2.) A ticket cannot be
   deleted or moved to another project from the screens, and archiving a project exists in the API
   only.
 - **GitHub integration, code review, workflows (automation), search, notifications and an audit
@@ -45,9 +46,6 @@ not listed as working in the README, assume it does not exist yet.
 - **"Where you are" is steel blue**, not amber, in the focus ring, current tab, current sidebar
   item and drag target, because orange now means a status. Amber remains the brand colour and the
   colour of warnings.
-- **Plain text only.** Titles, descriptions and comments have no formatting, no links that become
-  clickable, no mentions and no images. Line breaks are kept. This was chosen so user text can never
-  carry markup; richer text is a later decision.
 - **The workflow is fixed per project.** Each project starts from the default seven statuses and
   their transitions ([workflows](workflows.md)); nothing can edit them until Part B. The board shows
   columns for **active** statuses only, which is every status today; once statuses can be
@@ -112,9 +110,46 @@ not listed as working in the README, assume it does not exist yet.
 - **Estimates and due dates** accept values from 0 to 99,999 minutes and any real calendar date;
   there is no business-hours or time-zone handling.
 
+## Content (P3a) limits
+
+- **Formatting is a subset.** No tables, no images from outside addresses, no nested quotes deeper
+  than three, list nesting one level deep. Raw HTML is never supported.
+- **Mentions notify nobody yet** (notifications are P5). The demo data's references were written
+  directly, so "mentioned in" appears only for references saved through the API.
+- **Attachments are on local disk** (`ATTACHMENTS_DIR`). There is no virus scanning, no image
+  re-encoding (metadata such as location stays in a photo), and a failed removal can leave an
+  orphaned file behind (never a row without its file).
+- **Acceptance criteria have no reviewer verdicts** and do not stop a ticket being finished, by the
+  owner's choice.
+
+## Structure (P2) limits
+
+- **No automatic moves.** A new blocker does not move a ticket to Jammed; nothing moves tickets by
+  itself until the security gate.
+- **Top level only on a board** filters the cards already loaded, so a column cut off at 50 cards
+  can show a slightly low count. Lanes list only projects with tickets on the board, and a folded
+  lane or list tree is not remembered after a reload. The list folds whole trees, not a middle level.
+- **Tree mode** arranges at most 2000 matching tickets per request; the total still counts all.
+- **No bulk "set parent" or bulk linking**, and no rolled-up estimates or due dates.
+- **Longer blocking loops** (A blocks B blocks C blocks A) are allowed; only A and B blocking each
+  other directly is refused.
+
 ## Security gaps (see also [security](security.md))
 
-- No rate limiting or lockout on any route (Stage 7).
+- Rate limiting exists only on the CLI sign-in routes, in memory, per API process (Stage 7 for the
+  rest).
+- **CLI tokens are industry standard, not more** (the owner's choice, 2026-10-28). Not built:
+  short-lived access with rotating refresh tokens, keeping the token in the OS keychain, IP
+  allow-lists per token, a tamper-evident audit log, a notice on use from a new address, and
+  revoking a token automatically when the repository scanner finds it in code.
+- **Addresses come from the web proxy.** The API believes `X-Forwarded-For` only from a proxy on
+  loopback (the web app), so addresses and the sign-in limits are per real caller. A program on the
+  API's own machine that calls it directly can still claim any address.
+- **Duplicating a ticket** copies its text but not its attachments, so images in the copy's
+  description show as missing.
+- **Signing in again on the approval page** returns to the workspace, not to the approval page;
+  open the link from the terminal again. Real sign-in (passwords, MFA) is still to come, and the
+  CLI is only as trustworthy as the sign-in that approves it.
 - No security response headers such as CSP or HSTS from the web app (Stage 7).
 - Sessions have an absolute lifetime only: no idle timeout, no list of sessions, no "sign out
   everywhere". Expired and revoked sessions stay in the `sessions` table; nothing purges them yet.

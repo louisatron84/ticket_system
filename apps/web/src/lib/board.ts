@@ -145,3 +145,73 @@ export function boardReducer(state: BoardState, action: BoardAction): BoardState
       return { board: action.board, pending: null };
   }
 }
+
+/**
+ * The board with only top-level tickets: cards with a parent are left out, and each column's
+ * count drops by as many as were left out. The same board comes back when nothing changes.
+ */
+export function topLevelOnly(board: BoardData): BoardData {
+  if (board.columns.every((column) => column.tickets.every((ticket) => !ticket.parentKey))) {
+    return board;
+  }
+  return {
+    ...board,
+    columns: board.columns.map((column) => {
+      const tickets = column.tickets.filter((ticket) => !ticket.parentKey);
+      return {
+        ...column,
+        tickets,
+        total: Math.max(0, column.total - (column.tickets.length - tickets.length)),
+      };
+    }),
+  };
+}
+
+export type Lane = {
+  project: { key: string; name: string };
+  /** Tickets in the lane, across its columns. */
+  total: number;
+  columns: BoardColumnData[];
+};
+
+/**
+ * One lane (swimlane) per project that has tickets on the board, in key order. Every lane has the
+ * columns given, in the order given; a lane's column counts the tickets loaded into it.
+ */
+export function lanesOf(columns: BoardColumnData[]): Lane[] {
+  const projects = new Map<string, string>();
+  for (const column of columns) {
+    for (const ticket of column.tickets) projects.set(ticket.project.key, ticket.project.name);
+  }
+  return [...projects]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, name]) => {
+      const laneColumns = columns.map((column) => {
+        const tickets = column.tickets.filter((ticket) => ticket.project.key === key);
+        return { ...column, tickets, total: tickets.length };
+      });
+      return {
+        project: { key, name },
+        total: laneColumns.reduce((sum, column) => sum + column.total, 0),
+        columns: laneColumns,
+      };
+    });
+}
+
+// A status key is lower-case letters, digits and underscores, so `|` never appears in one.
+const LANE_SEPARATOR = '|';
+
+/** The id of a column as a drop target: its status key, and its lane's project when in lanes. */
+export const dropId = (statusKey: string, laneKey?: string) =>
+  laneKey ? `${laneKey}${LANE_SEPARATOR}${statusKey}` : statusKey;
+
+export function parseDropId(id: string): { statusKey: string; laneKey: string | null } {
+  const at = id.indexOf(LANE_SEPARATOR);
+  return at === -1
+    ? { statusKey: id, laneKey: null }
+    : { statusKey: id.slice(at + 1), laneKey: id.slice(0, at) };
+}
+
+/** A ticket stays in its own project's lane: it never changes project by being dragged. */
+export const fitsLane = (ticket: TicketSummary, laneKey: string | null) =>
+  laneKey === null || ticket.project.key === laneKey;

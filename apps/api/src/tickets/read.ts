@@ -12,18 +12,29 @@ import {
   users,
   type Executor,
 } from '@forge/db';
-import type { Label, StatusCategory, TicketDetail, TicketSummary } from '@forge/shared';
+import type { Label, Progress, StatusCategory, TicketDetail, TicketSummary } from '@forge/shared';
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
+import { openBlockersOf } from './blockers';
+import {
+  criteriaCountsFor,
+  loadAttachments,
+  loadCriteria,
+  mentionedInOf,
+  referencesOf,
+} from './content';
+import { ancestorsOf, childTreeOf, loadLinks, progressOf } from './structure-read';
 
 const assigneeUser = alias(users, 'assignee_user');
 const reporterUser = alias(users, 'reporter_user');
+const parentTicket = alias(tickets, 'parent_ticket');
 
 const columns = {
   id: tickets.id,
   key: tickets.key,
   title: tickets.title,
   description: tickets.description,
+  goal: tickets.goal,
   projectId: projects.id,
   projectKey: projects.key,
   projectName: projects.name,
@@ -52,6 +63,9 @@ const columns = {
   version: tickets.version,
   completedAt: tickets.completedAt,
   archivedAt: tickets.archivedAt,
+  parentId: tickets.parentId,
+  parentKey: parentTicket.key,
+  origin: tickets.origin,
   createdAt: tickets.createdAt,
   updatedAt: tickets.updatedAt,
 };
@@ -68,6 +82,7 @@ function selectRows(executor: Executor, where: SQL | undefined) {
     .innerJoin(reporterUser, eq(reporterUser.id, tickets.reporterId))
     .leftJoin(assigneeUser, eq(assigneeUser.id, tickets.assigneeId))
     .leftJoin(components, eq(components.id, tickets.componentId))
+    .leftJoin(parentTicket, eq(parentTicket.id, tickets.parentId))
     .where(where);
 }
 type Row = Awaited<ReturnType<typeof selectRows>>[number];
@@ -123,7 +138,20 @@ async function commentCountsFor(
 
 const iso = (date: Date | null) => (date ? date.toISOString() : null);
 
-function toSummary(row: Row, ticketLabelsList: Label[], commentCount: number): TicketSummary {
+/** What the structure read adds to a summary: progress below it and what blocks it. */
+type Structure = {
+  progress: Progress | null;
+  openBlockerKeys: string[];
+  criteria: { done: number; total: number };
+};
+const NO_CRITERIA = { done: 0, total: 0 };
+
+function toSummary(
+  row: Row,
+  ticketLabelsList: Label[],
+  commentCount: number,
+  structure: Structure,
+): TicketSummary {
   return {
     id: row.id,
     key: row.key,
@@ -149,6 +177,11 @@ function toSummary(row: Row, ticketLabelsList: Label[], commentCount: number): T
     dueDate: row.dueDate,
     version: row.version,
     commentCount,
+    parentKey: row.parentKey,
+    progress: structure.progress,
+    // A finished ticket is not blocked by anything any more.
+    openBlockerKeys: row.statusCategory === 'completed' ? [] : structure.openBlockerKeys,
+    criteria: structure.criteria,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -161,15 +194,26 @@ export async function loadTicketSummaries(
   ids: string[],
 ): Promise<TicketSummary[]> {
   if (ids.length === 0) return [];
-  const [rows, labelMap, commentCounts] = await Promise.all([
+  const [rows, labelMap, commentCounts, progress, blockers, criteria] = await Promise.all([
     selectRows(executor, and(eq(tickets.organisationId, organisationId), inArray(tickets.id, ids))),
     labelsFor(executor, organisationId, ids),
     commentCountsFor(executor, organisationId, ids),
+    progressOf(executor, ids),
+    openBlockersOf(executor, organisationId, ids),
+    criteriaCountsFor(executor, organisationId, ids),
   ]);
   const byId = new Map(rows.map((row) => [row.id, row] as const));
   return ids.flatMap((id) => {
     const row = byId.get(id);
-    return row ? [toSummary(row, labelMap.get(id) ?? [], commentCounts.get(id) ?? 0)] : [];
+    return row
+      ? [
+          toSummary(row, labelMap.get(id) ?? [], commentCounts.get(id) ?? 0, {
+            progress: progress.get(id) ?? null,
+            openBlockerKeys: blockers.get(id) ?? [],
+            criteria: criteria.get(id) ?? NO_CRITERIA,
+          }),
+        ]
+      : [];
   });
 }
 
@@ -185,9 +229,26 @@ export async function loadTicketDetail(
   );
   if (!row) return null;
 
-  const [labelMap, commentCounts, next] = await Promise.all([
+  const [
+    labelMap,
+    commentCounts,
+    progress,
+    blockers,
+    ancestors,
+    children,
+    links,
+    next,
+    criteriaItems,
+    attachments,
+    mentionedIn,
+  ] = await Promise.all([
     labelsFor(executor, organisationId, [row.id]),
     commentCountsFor(executor, organisationId, [row.id]),
+    progressOf(executor, [row.id]),
+    openBlockersOf(executor, organisationId, [row.id]),
+    ancestorsOf(executor, row.id),
+    childTreeOf(executor, row.id),
+    loadLinks(executor, organisationId, row.id),
     executor
       .select({
         id: projectStatuses.id,
@@ -205,11 +266,25 @@ export async function loadTicketDetail(
         ),
       )
       .orderBy(asc(projectStatuses.sortOrder)),
+    loadCriteria(executor, row.id),
+    loadAttachments(executor, row.id),
+    mentionedInOf(executor, row.id),
   ]);
+  const references = await referencesOf(executor, organisationId, row, criteriaItems);
+  const done = criteriaItems.filter((item) => item.done).length;
 
   return {
-    ...toSummary(row, labelMap.get(row.id) ?? [], commentCounts.get(row.id) ?? 0),
+    ...toSummary(row, labelMap.get(row.id) ?? [], commentCounts.get(row.id) ?? 0, {
+      progress: progress.get(row.id) ?? null,
+      openBlockerKeys: blockers.get(row.id) ?? [],
+      criteria: { done, total: criteriaItems.length },
+    }),
     description: row.description,
+    goal: row.goal,
+    criteriaItems,
+    attachments,
+    mentionedIn,
+    references,
     reporter: { id: row.reporterId, email: row.reporterEmail, displayName: row.reporterName },
     component: row.componentId
       ? { id: row.componentId, projectId: row.componentProjectId!, name: row.componentName! }
@@ -222,5 +297,9 @@ export async function loadTicketDetail(
       ...status,
       category: status.category as StatusCategory,
     })),
+    ancestors,
+    children,
+    links,
+    origin: row.origin as 'person' | 'scan',
   };
 }

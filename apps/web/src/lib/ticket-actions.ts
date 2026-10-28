@@ -2,7 +2,13 @@
 // all copy, duplicate and archive the same way and word the result the same way. The pure helpers
 // come first; the few calls that touch the browser or the network are at the end.
 
-import type { BulkTicketBody, BulkTicketResult, TicketConfig, TicketDetail } from '@forge/shared';
+import type {
+  BulkTicketBody,
+  BulkTicketResult,
+  LinkChoice,
+  TicketConfig,
+  TicketDetail,
+} from '@forge/shared';
 import { apiFetch } from './api-client';
 import { workspaceHref } from './nav';
 
@@ -72,6 +78,35 @@ export const updateTicket = (
 /** Makes a copy of the ticket and returns the copy. */
 export const duplicateTicket = (organisationId: string, key: string) =>
   apiFetch<TicketDetail>(`${ticketPath(organisationId, key)}/duplicate`, { method: 'POST' });
+
+/** Puts a ticket under a parent, or makes it top level with `null`. */
+export const setParent = (organisationId: string, key: string, parentKey: string | null) =>
+  apiFetch<TicketDetail>(`${ticketPath(organisationId, key)}/parent`, {
+    method: 'PUT',
+    json: { parentKey },
+  });
+
+/** Links a ticket to another, worded from this ticket's side ("blocked_by" another). */
+export const addLink = (
+  organisationId: string,
+  key: string,
+  choice: LinkChoice,
+  otherKey: string,
+) =>
+  apiFetch<TicketDetail>(`${ticketPath(organisationId, key)}/links`, {
+    method: 'POST',
+    json: { choice, otherKey },
+  });
+
+export const removeLink = (organisationId: string, key: string, linkId: string) =>
+  apiFetch<void>(`${ticketPath(organisationId, key)}/links/${linkId}`, { method: 'DELETE' });
+
+/** Links the ticket as a duplicate of the original and scraps it, in one go. */
+export const markDuplicate = (organisationId: string, key: string, originalKey: string) =>
+  apiFetch<TicketDetail>(`${ticketPath(organisationId, key)}/mark-duplicate`, {
+    method: 'POST',
+    json: { originalKey },
+  });
 
 /** One change to many tickets. Each ticket's own result comes back; see `bulkSummary`. */
 export const bulkUpdate = (organisationId: string, body: BulkTicketBody) =>

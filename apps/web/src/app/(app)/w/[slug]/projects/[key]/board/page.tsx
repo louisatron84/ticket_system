@@ -45,12 +45,17 @@ export default async function ProjectBoardPage({
   const parsed = ticketQueryFromSearchParams(await searchParams);
   // A board is one project's: the address says which, whatever the query string says.
   const filters = { ...parsed.filters, project: [key] };
+  // A board showing only top-level tickets asks the server for just those, so counts are right.
+  const fetched = {
+    ...filters,
+    top: filters.top || resolveBoardDisplay(viewer.preferences.board).show === 'top',
+  };
   const organisationId = membership.organisation.id;
   const api = `/api/v1/orgs/${organisationId}`;
   const permissions = fieldPermissions(membership.permissions);
 
   const [board, project, config, members, views] = await Promise.all([
-    serverGet(`${api}/projects/${key}/board?${ticketFiltersToSearchParams(filters)}`, boardSchema),
+    serverGet(`${api}/projects/${key}/board?${ticketFiltersToSearchParams(fetched)}`, boardSchema),
     serverGet(`${api}/projects/${key}`, projectDetailSchema),
     serverGet(`${api}/ticket-config`, ticketConfigSchema),
     hasPermission(membership.permissions, 'members.view')

@@ -52,12 +52,17 @@ export default async function TicketsBoardPage({
 
   const parsed = ticketQueryFromSearchParams(await searchParams);
   const filters = parsed.filters;
+  // A board showing only top-level tickets asks the server for just those, so counts are right.
+  const fetched = {
+    ...filters,
+    top: filters.top || resolveBoardDisplay(viewer.preferences.board).show === 'top',
+  };
   const organisationId = membership.organisation.id;
   const api = `/api/v1/orgs/${organisationId}`;
   const permissions = fieldPermissions(membership.permissions);
 
   const [board, config, projects, members, views] = await Promise.all([
-    serverGet(`${api}/board?${ticketFiltersToSearchParams(filters)}`, workspaceBoardSchema),
+    serverGet(`${api}/board?${ticketFiltersToSearchParams(fetched)}`, workspaceBoardSchema),
     serverGet(`${api}/ticket-config`, ticketConfigSchema),
     serverGet(`${api}/projects`, projectSchema.array()),
     hasPermission(membership.permissions, 'members.view')
@@ -104,6 +109,7 @@ export default async function TicketsBoardPage({
                 />
                 <DisplayMenu
                   columns={board.data.columns.map(({ status, total }) => ({ status, total }))}
+                  lanes
                 />
               </div>
             }

@@ -1,10 +1,16 @@
 import type { Db } from '@forge/db';
-import { commentBodySchema, type Comment, type TimelineItem } from '@forge/shared';
+import { commentBodySchema, reactBodySchema, type Comment, type TimelineItem } from '@forge/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { orgAccess } from '../auth/guards';
 import { AppError } from '../errors';
-import { addComment, deleteComment, editComment, loadTimeline } from '../tickets/comments';
+import {
+  addComment,
+  deleteComment,
+  editComment,
+  loadTimeline,
+  setReaction,
+} from '../tickets/comments';
 import type { TicketContext } from '../tickets/service';
 import { parseBody } from '../validation';
 import { ticketKeyParam } from './tickets';
@@ -32,7 +38,12 @@ export function registerCommentRoutes(app: FastifyInstance, deps: { db: Db }): v
     '/api/v1/orgs/:orgId/tickets/:ticketKey/timeline',
     { preHandler: orgAccess(db, 'tickets.view') },
     async (request): Promise<TimelineItem[]> =>
-      loadTimeline(db, request.org!.organisationId, ticketKeyParam(request)),
+      loadTimeline(
+        db,
+        request.org!.organisationId,
+        ticketKeyParam(request),
+        request.org!.actorUserId,
+      ),
   );
 
   app.post(
@@ -68,6 +79,21 @@ export function registerCommentRoutes(app: FastifyInstance, deps: { db: Db }): v
       const commentId = commentIdParam(request);
       await deleteComment(db, { context: context(request), ticketKey, commentId });
       reply.status(204).send();
+    },
+  );
+
+  app.put(
+    '/api/v1/orgs/:orgId/tickets/:ticketKey/comments/:commentId/reactions',
+    { preHandler: orgAccess(db, 'tickets.comment') },
+    async (request): Promise<Comment> => {
+      const body = parseBody(reactBodySchema, request.body);
+      return setReaction(db, {
+        context: context(request),
+        ticketKey: ticketKeyParam(request),
+        commentId: commentIdParam(request),
+        reaction: body.reaction,
+        on: body.on,
+      });
     },
   );
 }

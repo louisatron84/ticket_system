@@ -1,4 +1,11 @@
-import type { Member, Priority, TicketFilters, TicketSummary, Workflow } from '@forge/shared';
+import type {
+  Member,
+  Priority,
+  TicketFilters,
+  TicketSummary,
+  TicketTreeRow,
+  Workflow,
+} from '@forge/shared';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import Link from 'next/link';
 import { allowedStatuses, isMovable } from '@/lib/board';
@@ -9,6 +16,7 @@ import { DueDate, PriorityMark, StatusBadge, TypeBadge } from './badges';
 import { RowCheckbox, SelectAllCheckbox } from './bulk-selection';
 import { AssigneeCell, PriorityCell, StatusCell } from './inline-cell-menu';
 import { LabelChips } from './label-chip';
+import { TreeToggle } from './tree-toggle';
 import { UserChip } from './user-chip';
 
 /**
@@ -61,7 +69,22 @@ function SortHeader({
   );
 }
 
-/** The ticket list: one row per ticket, sortable by key, priority, due date and last update. */
+/** Splits tree rows into one group per top-level row, each with everything nested under it. */
+function treesOf(rows: TicketTreeRow[]): TicketTreeRow[][] {
+  const trees: TicketTreeRow[][] = [];
+  for (const row of rows) {
+    if (row.depth === 1 || trees.length === 0) trees.push([row]);
+    else trees.at(-1)!.push(row);
+  }
+  return trees;
+}
+
+/**
+ * The ticket list: one row per ticket, sortable by key, priority, due date and last update. With
+ * `rows` (tree mode) children sit under their parents; a greyed row is an ancestor that does not
+ * match the filters, there only so its children have somewhere to sit, and it cannot be changed
+ * or selected from here.
+ */
 export function TicketTable({
   items,
   filters,
@@ -72,8 +95,11 @@ export function TicketTable({
   now,
   maxRank,
   editing,
+  rows,
 }: {
   items: TicketSummary[];
+  /** Tree mode: the page's rows in display order, nested by depth. */
+  rows?: TicketTreeRow[];
   filters: TicketFilters;
   basePath: string;
   scoped: boolean;
@@ -88,6 +114,103 @@ export function TicketTable({
   // An archived project's tickets cannot change, so their cells stay plain.
   const editable = (ticket: TicketSummary) =>
     editing?.canEdit === true && isMovable(editing.workflows, ticket);
+  const renderRow = (
+    ticket: TicketSummary,
+    tree: { depth: number; context: boolean; toggle: boolean } | null,
+  ) => {
+    const done = ticket.status.category === 'completed';
+    const context = tree?.context === true;
+    const cell = editing && !context && editable(ticket) ? { ticket, slug, ...editing } : null;
+    const targets = cell ? allowedStatuses(cell.workflows, ticket) : [];
+    return (
+      <tr
+        key={ticket.id}
+        data-context={context || undefined}
+        className={`align-top hover:bg-raised/50 ${context ? 'text-muted' : ''} ${
+          tree && tree.depth > 1 ? 'group-data-[collapsed]:hidden' : ''
+        }`}
+      >
+        {editing?.canEdit && (
+          <td className="py-2.5 pl-3">{!context && <RowCheckbox ticketKey={ticket.key} />}</td>
+        )}
+        <th scope="row" className="px-3 py-2.5 font-normal">
+          <span className="font-mono text-xs text-muted">{ticket.key}</span>
+        </th>
+        <td className="px-3 py-2.5">
+          <div
+            className="flex min-w-0 items-start gap-2"
+            style={tree ? { paddingLeft: `${(tree.depth - 1) * 1.25}rem` } : undefined}
+          >
+            {tree?.toggle && <TreeToggle ticketKey={ticket.key} />}
+            <span className="mt-0.5 shrink-0" title={ticket.type.name}>
+              <TypeBadge type={ticket.type} iconOnly />
+            </span>
+            <div className="min-w-0">
+              <Link
+                href={workspaceHref(slug, `/tickets/${ticket.key}`)}
+                className="font-medium hover:underline"
+                data-row-link
+              >
+                {ticket.title}
+              </Link>
+              {!tree && ticket.parentKey && (
+                <div className="mt-0.5 font-mono text-xs text-muted">↑ {ticket.parentKey}</div>
+              )}
+              {ticket.labels.length > 0 && (
+                <div className="mt-1">
+                  <LabelChips labels={ticket.labels} />
+                </div>
+              )}
+            </div>
+          </div>
+        </td>
+        <td className="px-3 py-2.5">
+          {cell && targets.length > 0 ? (
+            <StatusCell
+              ticket={ticket}
+              organisationId={cell.organisationId}
+              slug={slug}
+              targets={targets}
+            />
+          ) : (
+            <StatusBadge status={ticket.status} />
+          )}
+        </td>
+        <td className="hidden px-3 py-2.5 md:table-cell">
+          {cell && cell.priorities.length > 1 ? (
+            <PriorityCell
+              ticket={ticket}
+              organisationId={cell.organisationId}
+              slug={slug}
+              priorities={cell.priorities}
+              maxRank={maxRank}
+            />
+          ) : (
+            <PriorityMark priority={ticket.priority} maxRank={maxRank} />
+          )}
+        </td>
+        <td className="hidden px-3 py-2.5 lg:table-cell">
+          {cell?.members && cell.members.length > 0 ? (
+            <AssigneeCell
+              ticket={ticket}
+              organisationId={cell.organisationId}
+              slug={slug}
+              members={cell.members}
+            />
+          ) : (
+            <UserChip person={ticket.assignee} />
+          )}
+        </td>
+        <td className="hidden px-3 py-2.5 lg:table-cell">
+          <DueDate date={ticket.dueDate} today={today} done={done} />
+        </td>
+        <td className="hidden px-3 py-2.5 text-muted xl:table-cell">
+          <time dateTime={ticket.updatedAt}>{formatRelativeTime(ticket.updatedAt, now)}</time>
+        </td>
+      </tr>
+    );
+  };
+
   return (
     <div className="overflow-x-auto rounded-md border border-edge bg-panel">
       <table className="w-full text-left text-[13px]">
@@ -126,91 +249,26 @@ export function TicketTable({
             />
           </tr>
         </thead>
-        <tbody className="divide-y divide-edge">
-          {items.map((ticket) => {
-            const done = ticket.status.category === 'completed';
-            const cell = editing && editable(ticket) ? { ticket, slug, ...editing } : null;
-            const targets = cell ? allowedStatuses(cell.workflows, ticket) : [];
-            return (
-              <tr key={ticket.id} className="align-top hover:bg-raised/50">
-                {editing?.canEdit && (
-                  <td className="py-2.5 pl-3">
-                    <RowCheckbox ticketKey={ticket.key} />
-                  </td>
-                )}
-                <th scope="row" className="px-3 py-2.5 font-normal">
-                  <span className="font-mono text-xs text-muted">{ticket.key}</span>
-                </th>
-                <td className="px-3 py-2.5">
-                  <div className="flex min-w-0 items-start gap-2">
-                    <span className="mt-0.5 shrink-0" title={ticket.type.name}>
-                      <TypeBadge type={ticket.type} iconOnly />
-                    </span>
-                    <div className="min-w-0">
-                      <Link
-                        href={workspaceHref(slug, `/tickets/${ticket.key}`)}
-                        className="font-medium hover:underline"
-                        data-row-link
-                      >
-                        {ticket.title}
-                      </Link>
-                      {ticket.labels.length > 0 && (
-                        <div className="mt-1">
-                          <LabelChips labels={ticket.labels} />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </td>
-                <td className="px-3 py-2.5">
-                  {cell && targets.length > 0 ? (
-                    <StatusCell
-                      ticket={ticket}
-                      organisationId={cell.organisationId}
-                      slug={slug}
-                      targets={targets}
-                    />
-                  ) : (
-                    <StatusBadge status={ticket.status} />
-                  )}
-                </td>
-                <td className="hidden px-3 py-2.5 md:table-cell">
-                  {cell && cell.priorities.length > 1 ? (
-                    <PriorityCell
-                      ticket={ticket}
-                      organisationId={cell.organisationId}
-                      slug={slug}
-                      priorities={cell.priorities}
-                      maxRank={maxRank}
-                    />
-                  ) : (
-                    <PriorityMark priority={ticket.priority} maxRank={maxRank} />
-                  )}
-                </td>
-                <td className="hidden px-3 py-2.5 lg:table-cell">
-                  {cell?.members && cell.members.length > 0 ? (
-                    <AssigneeCell
-                      ticket={ticket}
-                      organisationId={cell.organisationId}
-                      slug={slug}
-                      members={cell.members}
-                    />
-                  ) : (
-                    <UserChip person={ticket.assignee} />
-                  )}
-                </td>
-                <td className="hidden px-3 py-2.5 lg:table-cell">
-                  <DueDate date={ticket.dueDate} today={today} done={done} />
-                </td>
-                <td className="hidden px-3 py-2.5 text-muted xl:table-cell">
-                  <time dateTime={ticket.updatedAt}>
-                    {formatRelativeTime(ticket.updatedAt, now)}
-                  </time>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
+        {rows ? (
+          treesOf(rows).map((tree) => (
+            <tbody
+              key={tree[0]!.ticket.id}
+              className="group divide-y divide-edge border-t border-edge"
+            >
+              {tree.map((row, index) =>
+                renderRow(row.ticket, {
+                  depth: row.depth,
+                  context: row.context,
+                  toggle: index === 0 && tree.length > 1,
+                }),
+              )}
+            </tbody>
+          ))
+        ) : (
+          <tbody className="divide-y divide-edge">
+            {items.map((ticket) => renderRow(ticket, null))}
+          </tbody>
+        )}
       </table>
     </div>
   );

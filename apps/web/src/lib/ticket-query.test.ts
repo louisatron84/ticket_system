@@ -5,6 +5,7 @@ import {
   hasActiveFilters,
   hrefFor,
   sortedBy,
+  structureChips,
   ticketQueryFromSearchParams,
   toggleFilterValue,
   withFilters,
@@ -259,5 +260,56 @@ describe('hrefFor', () => {
       },
     );
     expect(href).toBe('/w/acme/projects/WEB/list?q=x');
+  });
+});
+
+describe('structure filters', () => {
+  const busy = () =>
+    withFilters(defaults(), {
+      parent: 'WEB-20',
+      epic: 'WEB-5',
+      linked: 'WEB-3',
+      blocked: 'yes',
+      top: true,
+    });
+
+  it('each shows as a chip in words', () => {
+    expect(structureChips(busy()).map((chip) => chip.text)).toEqual([
+      'Parent: WEB-20',
+      'Epic: WEB-5',
+      'Linked to: WEB-3',
+      'Has blocker: Yes',
+      'Top level only',
+    ]);
+    expect(
+      structureChips(withFilters(defaults(), { blocked: 'no' })).map((chip) => chip.text),
+    ).toEqual(['Has blocker: No']);
+    expect(structureChips(defaults())).toEqual([]);
+  });
+
+  it('each chip removes only its own filter', () => {
+    for (const chip of structureChips(busy())) {
+      const left = withFilters(busy(), chip.remove);
+      expect(structureChips(left)).toHaveLength(4);
+    }
+  });
+
+  it('count as active, and are cleared with the rest', () => {
+    for (const patch of [
+      { parent: 'WEB-1' },
+      { epic: 'WEB-1' },
+      { linked: 'WEB-1' },
+      { blocked: 'no' as const },
+      { top: true },
+    ]) {
+      expect(hasActiveFilters(withFilters(defaults(), patch)), JSON.stringify(patch)).toBe(true);
+    }
+    expect(structureChips(clearFilters(busy()))).toEqual([]);
+  });
+
+  it('the tree is a way of looking, not a filter: it is not active and survives Clear all', () => {
+    const tree = withFilters(defaults(), { tree: true, q: 'x' });
+    expect(hasActiveFilters(withFilters(defaults(), { tree: true }))).toBe(false);
+    expect(clearFilters(tree)).toMatchObject({ tree: true, q: '' });
   });
 });

@@ -6,6 +6,7 @@ const nameRef = z.object({ id: z.string(), name: z.string() });
 export const TICKET_CHANGE_FIELDS = [
   'title',
   'description',
+  'goal',
   'type',
   'priority',
   'assignee',
@@ -44,6 +45,38 @@ export const ticketEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ticket.unarchived'), data: z.object({}) }),
   // Written on the copy; `fromKey` is the key of the ticket it was copied from.
   z.object({ type: z.literal('ticket.duplicated'), data: z.object({ fromKey: z.string() }) }),
+  // Written on the child; the parent gets `ticket.child_added` / `ticket.child_removed`.
+  z.object({
+    type: z.literal('ticket.parent_set'),
+    data: z.object({ parentKey: z.string().nullable(), previousKey: z.string().nullable() }),
+  }),
+  z.object({ type: z.literal('ticket.child_added'), data: z.object({ childKey: z.string() }) }),
+  z.object({ type: z.literal('ticket.child_removed'), data: z.object({ childKey: z.string() }) }),
+  // Written on both tickets, each with the label as seen from that ticket ("Blocked by").
+  z.object({
+    type: z.literal('link.added'),
+    data: z.object({ label: z.string(), otherKey: z.string() }),
+  }),
+  z.object({
+    type: z.literal('link.removed'),
+    data: z.object({ label: z.string(), otherKey: z.string() }),
+  }),
+  z.object({
+    type: z.literal('ticket.marked_duplicate'),
+    data: z.object({ originalKey: z.string() }),
+  }),
+  // Acceptance criteria. The text is captured so the history reads right after later edits.
+  z.object({ type: z.literal('criterion.added'), data: z.object({ text: z.string() }) }),
+  z.object({
+    type: z.literal('criterion.edited'),
+    data: z.object({ from: z.string(), to: z.string() }),
+  }),
+  z.object({ type: z.literal('criterion.ticked'), data: z.object({ text: z.string() }) }),
+  z.object({ type: z.literal('criterion.unticked'), data: z.object({ text: z.string() }) }),
+  z.object({ type: z.literal('criterion.removed'), data: z.object({ text: z.string() }) }),
+  z.object({ type: z.literal('criteria.reordered'), data: z.object({}) }),
+  z.object({ type: z.literal('attachment.added'), data: z.object({ fileName: z.string() }) }),
+  z.object({ type: z.literal('attachment.removed'), data: z.object({ fileName: z.string() }) }),
 ]);
 export type TicketEvent = z.infer<typeof ticketEventSchema>;
 
@@ -60,6 +93,8 @@ function describeChange({ field, from, to }: TicketChange): string {
       return `changed the title from "${from}" to "${to}"`;
     case 'description':
       return 'edited the description';
+    case 'goal':
+      return 'edited the goal';
     case 'assignee':
       if (!from && to) return `assigned this to ${to}`;
       if (from && !to) return `unassigned ${from}`;
@@ -120,6 +155,36 @@ export function describeTicketEvent(event: TicketEvent, actorName: string): stri
       return `${actorName} unarchived this ticket`;
     case 'ticket.duplicated':
       return `${actorName} duplicated this from ${event.data.fromKey}`;
+    case 'ticket.parent_set':
+      return event.data.parentKey
+        ? `${actorName} set the parent to ${event.data.parentKey}`
+        : `${actorName} removed the parent ${event.data.previousKey ?? ''}`.trimEnd();
+    case 'ticket.child_added':
+      return `${actorName} added ${event.data.childKey} as a child`;
+    case 'ticket.child_removed':
+      return `${actorName} removed ${event.data.childKey} from its children`;
+    case 'link.added':
+      return `${actorName} added a link: ${event.data.label.toLowerCase()} ${event.data.otherKey}`;
+    case 'link.removed':
+      return `${actorName} removed a link: ${event.data.label.toLowerCase()} ${event.data.otherKey}`;
+    case 'ticket.marked_duplicate':
+      return `${actorName} marked this as a duplicate of ${event.data.originalKey}`;
+    case 'criterion.added':
+      return `${actorName} added the criterion "${event.data.text}"`;
+    case 'criterion.edited':
+      return `${actorName} changed the criterion "${event.data.from}" to "${event.data.to}"`;
+    case 'criterion.ticked':
+      return `${actorName} ticked "${event.data.text}"`;
+    case 'criterion.unticked':
+      return `${actorName} unticked "${event.data.text}"`;
+    case 'criterion.removed':
+      return `${actorName} removed the criterion "${event.data.text}"`;
+    case 'criteria.reordered':
+      return `${actorName} reordered the acceptance criteria`;
+    case 'attachment.added':
+      return `${actorName} attached ${event.data.fileName}`;
+    case 'attachment.removed':
+      return `${actorName} removed the attachment ${event.data.fileName}`;
   }
 }
 

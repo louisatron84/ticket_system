@@ -30,6 +30,7 @@ export function BoardColumn({
   dropState,
   draggedFrom,
   seeAllHref,
+  dropId = column.status.key,
   heat = true,
   onQuickCreate,
   projectChoices = [],
@@ -43,6 +44,8 @@ export function BoardColumn({
   draggedFrom: string | null;
   /** Where to see every ticket of this status, when the column shows only some. */
   seeAllHref: string;
+  /** Its id as a drop target: the status key, with the lane in it when the board has lanes. */
+  dropId?: string;
   heat?: boolean;
   /** Makes a ticket in this column's status; true when it was made. Absent: no "+". */
   onQuickCreate?: (title: string, projectKey: string) => Promise<boolean>;
@@ -58,7 +61,7 @@ export function BoardColumn({
   // which skips the ones that refuse.
   const { setNodeRef, isOver } = useDroppable({
     // A status key, not an id: on the Tickets page a column holds several projects' statuses.
-    id: column.status.key,
+    id: dropId,
     data: { accepts: dropState === 'accepts' },
   });
   const [adding, setAdding] = useState(false);

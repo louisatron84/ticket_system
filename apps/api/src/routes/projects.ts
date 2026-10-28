@@ -39,6 +39,7 @@ async function loadProjects(db: Db, organisationId: string, onlyKey?: string): P
       name: projects.name,
       description: projects.description,
       archivedAt: projects.archivedAt,
+      blockersStopCompletion: projects.blockersStopCompletion,
       ticketCount: sql<number>`count(${tickets.id}) filter (where ${tickets.archivedAt} is null)::int`,
       openCount: sql<number>`count(${tickets.id}) filter (where ${tickets.archivedAt} is null and ${projectStatuses.category} <> 'completed')::int`,
     })
@@ -175,6 +176,9 @@ export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db }): v
           ...(body.name !== undefined ? { name: body.name } : {}),
           ...(body.description !== undefined ? { description: body.description } : {}),
           ...(body.archived !== undefined ? { archivedAt: body.archived ? new Date() : null } : {}),
+          ...(body.blockersStopCompletion !== undefined
+            ? { blockersStopCompletion: body.blockersStopCompletion }
+            : {}),
         };
         await tx.update(projects).set(changes).where(eq(projects.id, before.id));
 
@@ -188,11 +192,13 @@ export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db }): v
             name: before.name,
             description: before.description,
             archived: before.archivedAt !== null,
+            blockersStopCompletion: before.blockersStopCompletion,
           },
           after: {
             name: body.name ?? before.name,
             description: body.description ?? before.description,
             archived: body.archived ?? before.archivedAt !== null,
+            blockersStopCompletion: body.blockersStopCompletion ?? before.blockersStopCompletion,
           },
           requestId: request.id,
           source: 'user',

@@ -748,7 +748,9 @@ test.describe('the card menu', () => {
     await openBoard(page);
 
     await actionsButton(page, 'WEB-3').click();
-    await actionsMenu(page, 'WEB-3').getByRole('button', { name: 'Duplicate' }).click();
+    await actionsMenu(page, 'WEB-3')
+      .getByRole('button', { name: 'Duplicate', exact: true })
+      .click();
 
     await expect(page).toHaveURL(/\/w\/acme\/tickets\/WEB-13$/);
     await expect(page.getByText('Created WEB-13, a copy of WEB-3.')).toBeVisible();

@@ -1,4 +1,11 @@
-import { hasControlCharacter, hasPermission, type StatusCategory } from '@forge/shared';
+import {
+  MAX_CRITERIA,
+  MAX_CRITERION_LENGTH,
+  MAX_GOAL_LENGTH,
+  hasControlCharacter,
+  hasPermission,
+  type StatusCategory,
+} from '@forge/shared';
 
 const ESTIMATE_FORMAT = 'Write it like 90, 45m, 1h 30m or 1.5h.';
 const MAX_ESTIMATE_MINUTES = 99_999;
@@ -67,6 +74,30 @@ export function validateDueDate(value: string): string | undefined {
   return real ? undefined : 'Use a real date, like 2030-01-31.';
 }
 
+/** Acceptance criteria typed one per line: blank lines are skipped, each line trimmed. */
+export function criteriaLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+export function validateGoal(goal: string): string | undefined {
+  if (goal.length > MAX_GOAL_LENGTH) return `Use ${MAX_GOAL_LENGTH} characters or fewer.`;
+  if (hasControlCharacter(goal, LINE_BREAKS_AND_TABS)) return 'Remove control characters.';
+  return undefined;
+}
+
+export function validateCriteria(text: string): string | undefined {
+  const lines = criteriaLines(text);
+  if (lines.length > MAX_CRITERIA) return `Use ${MAX_CRITERIA} criteria or fewer.`;
+  const long = lines.findIndex((line) => line.length > MAX_CRITERION_LENGTH);
+  if (long !== -1)
+    return `Criterion ${long + 1} is longer than ${MAX_CRITERION_LENGTH} characters.`;
+  if (lines.some((line) => hasControlCharacter(line, [0x09]))) return 'Remove control characters.';
+  return undefined;
+}
+
 export type TicketFormValues = {
   project: string;
   title: string;
@@ -75,6 +106,9 @@ export type TicketFormValues = {
   priorityId: string;
   dueDate: string;
   estimate: string;
+  goal?: string;
+  /** Acceptance criteria, one per line. */
+  criteria?: string;
 };
 export type TicketFormErrors = Partial<Record<keyof TicketFormValues, string>>;
 
@@ -88,6 +122,8 @@ export function validateTicketForm(values: TicketFormValues): TicketFormErrors {
   if (values.project === '') errors.project = 'Choose a project.';
   set('title', validateTitle(values.title));
   set('description', validateDescription(values.description));
+  set('goal', validateGoal(values.goal ?? ''));
+  set('criteria', validateCriteria(values.criteria ?? ''));
   if (values.typeId === '') errors.typeId = 'Choose a type.';
   if (values.priorityId === '') errors.priorityId = 'Choose a priority.';
   set('dueDate', validateDueDate(values.dueDate));

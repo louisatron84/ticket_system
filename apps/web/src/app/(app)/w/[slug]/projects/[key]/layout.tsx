@@ -87,7 +87,14 @@ export default async function ProjectLayout({
         )}
       </header>
 
-      <ViewTabs label="Project views" boardHref={`${base}/board`} listHref={`${base}/list`} />
+      <ViewTabs
+        label="Project views"
+        boardHref={`${base}/board`}
+        listHref={`${base}/list`}
+        {...(hasPermission(membership.permissions, 'projects.manage')
+          ? { settingsHref: `${base}/settings` }
+          : {})}
+      />
       {children}
     </div>
   );

@@ -8,6 +8,7 @@ import {
   projectStatuses,
   projects,
   statusTransitions,
+  ticketCriteria,
   ticketLabels,
   ticketTypes,
   tickets,
@@ -23,9 +24,11 @@ import {
   type TicketDetail,
   type UpdateTicketBody,
 } from '@forge/shared';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { isForeignKeyViolation } from '../db-errors';
 import { AppError } from '../errors';
+import { completionRefusal } from './blockers';
+import { syncTicketMentions } from './content';
 import { loadTicketDetail } from './read';
 
 /** Who is acting and in which workspace. The organisation id always comes from `orgAccess`. */
@@ -198,6 +201,8 @@ export async function createTicket(
         reporterId: context.actorUserId,
         title: body.title,
         description: body.description ?? '',
+        goal: body.goal ?? '',
+        criteria: body.criteria ?? [],
         typeId: body.typeId,
         priorityId: body.priorityId,
         statusId: body.statusId,
@@ -207,6 +212,7 @@ export async function createTicket(
         estimateMinutes: body.estimateMinutes ?? null,
         labelIds: body.labelIds ?? [],
       });
+      await syncTicketMentions(tx, context.organisationId, created.id);
 
       const detail = await loadTicketDetail(tx, context.organisationId, created.key);
       if (!detail) throw new Error('A ticket that was just created could not be read back');
@@ -261,6 +267,7 @@ export async function updateTicket(
       if (body.description !== undefined && body.description !== row.description) {
         patch.description = body.description;
       }
+      if (body.goal !== undefined && body.goal !== row.goal) patch.goal = body.goal;
       if (body.typeId !== undefined && body.typeId !== row.typeId) patch.typeId = body.typeId;
       if (body.priorityId !== undefined && body.priorityId !== row.priorityId) {
         patch.priorityId = body.priorityId;
@@ -294,7 +301,22 @@ export async function updateTicket(
         ...(labelsChanged ? { labelIds: body.labelIds ?? [] } : {}),
       });
 
+      // An epic is always top level, so a ticket with a parent cannot become one.
+      if (patch.typeId !== undefined && row.parentId) {
+        const [type] = await tx
+          .select({ key: ticketTypes.key })
+          .from(ticketTypes)
+          .where(eq(ticketTypes.id, patch.typeId));
+        if (type?.key === 'epic') {
+          issues.push({
+            path: 'typeId',
+            message: 'An epic is always top level; remove its parent first.',
+          });
+        }
+      }
+
       let completedAt: Date | null | undefined;
+      let statusBeforeJamId: string | null = null;
       if (statusChanged) {
         const [target] = await tx
           .select()
@@ -324,8 +346,17 @@ export async function updateTicket(
               path: 'statusId',
               message: `That move isn't allowed from ${current.status.name}.`,
             });
+          } else {
+            const refusal = await completionRefusal(tx, {
+              organisationId: context.organisationId,
+              ticket: { id: row.id, key: row.key, projectId: row.projectId },
+              target,
+            });
+            if (refusal) issues.push({ path: 'statusId', message: refusal });
           }
           completedAt = target.category === 'completed' ? new Date() : null;
+          // Jammed remembers where the ticket was, so it can be put back there later.
+          if (target.key === 'blocked') statusBeforeJamId = row.statusId;
         }
       }
       if (issues.length > 0) throw invalid(issues);
@@ -335,11 +366,16 @@ export async function updateTicket(
         .update(tickets)
         .set({
           ...patch,
-          ...(statusChanged ? { statusId: body.statusId!, completedAt: completedAt ?? null } : {}),
+          ...(statusChanged
+            ? { statusId: body.statusId!, completedAt: completedAt ?? null, statusBeforeJamId }
+            : {}),
           version: sql`${tickets.version} + 1`,
           updatedAt: now,
         })
         .where(eq(tickets.id, row.id));
+      if (patch.description !== undefined || patch.goal !== undefined) {
+        await syncTicketMentions(tx, context.organisationId, row.id);
+      }
 
       if (labelsChanged) {
         const wanted = [...new Set(body.labelIds ?? [])];
@@ -371,6 +407,9 @@ export async function updateTicket(
       }
       if (patch.description !== undefined) {
         changes.push({ field: 'description', from: null, to: null });
+      }
+      if (patch.goal !== undefined) {
+        changes.push({ field: 'goal', from: null, to: null });
       }
       if (patch.typeId !== undefined) {
         changes.push({ field: 'type', from: current.type.name, to: next.type.name });
@@ -536,6 +575,12 @@ export async function duplicateTicket(
         ),
       );
 
+    const sourceCriteria = await tx
+      .select({ text: ticketCriteria.text })
+      .from(ticketCriteria)
+      .where(eq(ticketCriteria.ticketId, source.id))
+      .orderBy(asc(ticketCriteria.position), asc(ticketCriteria.id));
+
     const now = new Date();
     const created = await createTicketRow(tx, {
       organisationId: context.organisationId,
@@ -543,6 +588,9 @@ export async function duplicateTicket(
       reporterId: context.actorUserId,
       title: copyTitle(source.title),
       description: source.description,
+      goal: source.goal,
+      // The copy starts with the same criteria, none of them ticked.
+      criteria: sourceCriteria.map((criterion) => criterion.text),
       typeId: source.typeId,
       priorityId: source.priorityId,
       assigneeId: hasPermission(context.permissions, 'tickets.assign') ? source.assigneeId : null,
@@ -560,6 +608,7 @@ export async function duplicateTicket(
       event: { type: 'ticket.duplicated', data: { fromKey: source.key } },
       createdAt: new Date(now.getTime() + 1),
     });
+    await syncTicketMentions(tx, context.organisationId, created.id);
 
     const detail = await loadTicketDetail(tx, context.organisationId, created.key);
     if (!detail) throw new Error('A ticket that was just created could not be read back');

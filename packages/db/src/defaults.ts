@@ -96,6 +96,7 @@ export async function createProject(
         category: status.category,
         sortOrder: index + 1,
         isInitial: status.initial === true,
+        isCancellation: status.cancellation === true,
       })),
     )
     .returning({ id: projectStatuses.id, key: projectStatuses.key });

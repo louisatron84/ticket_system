@@ -14,6 +14,8 @@ import {
   formatEstimate,
   formatTicketKey,
   hasControlCharacter,
+  linkLabel,
+  storedLink,
   normalizeProjectKey,
   parseTicketKey,
   ticketSummarySchema,
@@ -473,6 +475,10 @@ describe('ticket summary', () => {
     commentCount: 2,
     createdAt: '2026-10-13T09:00:00.000Z',
     updatedAt: '2026-10-14T09:00:00.000Z',
+    parentKey: null,
+    progress: null,
+    openBlockerKeys: [],
+    criteria: { done: 0, total: 0 },
   };
 
   it('carries a comment count', () => {
@@ -484,5 +490,26 @@ describe('ticket summary', () => {
     expect(ticketSummarySchema.safeParse(without).success).toBe(false);
     expect(ticketSummarySchema.safeParse({ ...summary, commentCount: -1 }).success).toBe(false);
     expect(ticketSummarySchema.safeParse({ ...summary, commentCount: 1.5 }).success).toBe(false);
+  });
+});
+
+describe('linkLabel', () => {
+  it.each([
+    ['blocks', 'outward', 'Blocks'],
+    ['blocks', 'inward', 'Blocked by'],
+    ['duplicates', 'outward', 'Duplicates'],
+    ['duplicates', 'inward', 'Duplicated by'],
+    ['relates_to', 'outward', 'Relates to'],
+    ['relates_to', 'inward', 'Relates to'],
+  ] as const)('%s seen %s reads "%s"', (kind, direction, label) => {
+    expect(linkLabel(kind, direction)).toBe(label);
+  });
+
+  it('turns what a person picks into the stored kind and direction', () => {
+    expect(storedLink('blocks')).toEqual({ kind: 'blocks', direction: 'outward' });
+    expect(storedLink('blocked_by')).toEqual({ kind: 'blocks', direction: 'inward' });
+    expect(storedLink('relates_to')).toEqual({ kind: 'relates_to', direction: 'outward' });
+    expect(storedLink('duplicates')).toEqual({ kind: 'duplicates', direction: 'outward' });
+    expect(storedLink('duplicated_by')).toEqual({ kind: 'duplicates', direction: 'inward' });
   });
 });

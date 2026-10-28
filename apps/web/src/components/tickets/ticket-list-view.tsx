@@ -105,6 +105,7 @@ export async function TicketListView({
   const table = (
     <TicketTable
       items={list.data.items}
+      {...(list.data.rows ? { rows: list.data.rows } : {})}
       filters={filters}
       basePath={basePath}
       scoped={Boolean(scope)}
@@ -122,6 +123,7 @@ export async function TicketListView({
   return (
     <div className="flex flex-col gap-4">
       <FilterBar
+        showTree
         basePath={basePath}
         filters={filters}
         scoped={Boolean(scope)}
@@ -199,7 +201,8 @@ export async function TicketListView({
           <Pagination
             page={list.data.page}
             pageSize={list.data.pageSize}
-            total={list.data.total}
+            // Tree mode pages by top-level rows.
+            total={list.data.rootTotal ?? list.data.total}
             hrefForPage={hrefForPage}
           />
         </>

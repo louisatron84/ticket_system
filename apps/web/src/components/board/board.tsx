@@ -28,11 +28,18 @@ import { useRouter } from 'next/navigation';
 import { useReducer, useState } from 'react';
 import { toast } from 'sonner';
 import { ApiRequestError, apiFetch } from '@/lib/api-client';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import {
   allowedStatuses,
   boardReducer,
   canMoveTo,
+  dropId,
+  fitsLane,
   isMovable,
+  lanesOf,
+  parseDropId,
+  topLevelOnly,
+  type BoardColumnData,
   type BoardData,
   type StatusRef,
 } from '@/lib/board';
@@ -153,19 +160,29 @@ export function Board({
   );
 
   // Only the columns this person has chosen to see. "Move to" still offers every status.
-  const { shown } = arrangeColumns(state.board.columns, columnPrefs);
+  const board = display.show === 'top' ? topLevelOnly(state.board) : state.board;
+  const { shown } = arrangeColumns(board.columns, columnPrefs);
   const shownKeys = new Set(shown.map((column) => column.status.key));
+  // Lanes only make sense where several projects share the board.
+  const lanes = display.lanes === 'project' && !scoped ? lanesOf(shown) : null;
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 
   const all = state.board.columns.flatMap((column) => column.tickets);
   const find = (id: string | number): TicketSummary | undefined =>
     all.find((ticket) => ticket.id === id);
-  const statusName = (key: string | number) =>
-    state.board.columns.find((column) => column.status.key === key)?.status.name ?? 'that status';
+  const statusName = (id: string | number) => {
+    const { statusKey } = parseDropId(String(id));
+    return (
+      state.board.columns.find((column) => column.status.key === statusKey)?.status.name ??
+      'that status'
+    );
+  };
 
   const active = activeId ? find(activeId) : undefined;
 
-  const dropStateOf = (key: string): DropState => {
+  const dropStateOf = (key: string, laneKey: string | null): DropState => {
     if (!active) return 'idle';
+    if (!fitsLane(active, laneKey)) return 'refuses';
     if (key === active.status.key) return 'current';
     return canMoveTo(workflows, active, key) ? 'accepts' : 'refuses';
   };
@@ -249,7 +266,15 @@ export function Board({
   function onDragEnd(event: DragEndEvent) {
     setActiveId(null);
     const ticket = find(event.active.id);
-    if (ticket && event.over) void move(ticket, String(event.over.id));
+    if (!ticket || !event.over) return;
+    const { statusKey, laneKey } = parseDropId(String(event.over.id));
+    if (!fitsLane(ticket, laneKey)) {
+      toast.error(
+        `${ticket.key} belongs to ${ticket.project.key}, so it stays in that project's lane.`,
+      );
+      return;
+    }
+    void move(ticket, statusKey);
   }
 
   const announcements: Announcements = {
@@ -277,6 +302,70 @@ export function Board({
       const ticket = find(dragged.id);
       return ticket ? `Cancelled. ${ticket.key} was not moved.` : undefined;
     },
+  };
+
+  const renderColumn = (column: BoardColumnData, laneKey: string | null) => {
+    const choices = canCreate
+      ? projectsFor(column.status.key).filter((project) => !laneKey || project.key === laneKey)
+      : [];
+    const defaultProject =
+      choices.find((project) => project.key === onlyFiltered)?.key ??
+      (choices.length === 1 && (scoped || laneKey) ? choices[0]!.key : '');
+    return (
+      <BoardColumn
+        key={dropId(column.status.key, laneKey ?? undefined)}
+        column={column}
+        dropId={dropId(column.status.key, laneKey ?? undefined)}
+        dropState={dropStateOf(column.status.key, laneKey)}
+        heat={display.heat}
+        {...(choices.length > 0
+          ? {
+              onQuickCreate: (title: string, projectKey: string) =>
+                quickCreate(column.status.key, title, projectKey),
+              projectChoices: choices,
+              defaultProject,
+              askProject: !scoped && !laneKey,
+            }
+          : {})}
+        draggedFrom={active?.status.name ?? null}
+        seeAllHref={hrefFor(
+          listBase,
+          { ...filters, statusKey: [column.status.key], statusCategory: [], page: 1 },
+          { omitProject: scoped },
+        )}
+      >
+        {column.tickets.map((ticket) => {
+          const targets = allowedStatuses(workflows, ticket);
+          const movable = isMovable(workflows, ticket);
+          return (
+            <DraggableCard
+              key={ticket.id}
+              ticket={ticket}
+              slug={slug}
+              today={today}
+              maxRank={maxRank}
+              fields={display.fields}
+              density={display.density}
+              canMove={canMove && movable}
+              targets={targets}
+              actions={{
+                organisationId,
+                priorities: config.priorities,
+                members,
+                viewerId,
+                canAssign: canAssign && movable,
+                canCreate: canCreate && movable,
+              }}
+              busy={state.pending !== null}
+              onMove={(statusId) => {
+                const target = targets.find((status) => status.id === statusId);
+                if (target) void move(ticket, target.key);
+              }}
+            />
+          );
+        })}
+      </BoardColumn>
+    );
   };
 
   return (
@@ -313,68 +402,52 @@ export function Board({
           <p className="rounded-md border border-edge px-4 py-6 text-[13px] text-muted">
             Every column is hidden. Open Display to show some.
           </p>
-        ) : (
-          <div className="flex items-start gap-3">
-            {shown.map((column) => {
-              const choices = canCreate ? projectsFor(column.status.key) : [];
-              const defaultProject =
-                choices.find((project) => project.key === onlyFiltered)?.key ??
-                (choices.length === 1 && scoped ? choices[0]!.key : '');
+        ) : lanes ? (
+          <div className="flex flex-col gap-4">
+            {lanes.map((lane) => {
+              const open = !collapsed.has(lane.project.key);
               return (
-                <BoardColumn
-                  key={column.status.key}
-                  column={column}
-                  dropState={dropStateOf(column.status.key)}
-                  heat={display.heat}
-                  {...(choices.length > 0
-                    ? {
-                        onQuickCreate: (title: string, projectKey: string) =>
-                          quickCreate(column.status.key, title, projectKey),
-                        projectChoices: choices,
-                        defaultProject,
-                        askProject: !scoped,
-                      }
-                    : {})}
-                  draggedFrom={active?.status.name ?? null}
-                  seeAllHref={hrefFor(
-                    listBase,
-                    { ...filters, statusKey: [column.status.key], statusCategory: [], page: 1 },
-                    { omitProject: scoped },
-                  )}
+                <section
+                  key={lane.project.key}
+                  aria-label={`${lane.project.key} lane, ${lane.total} ${lane.total === 1 ? 'ticket' : 'tickets'}`}
+                  className="flex flex-col gap-2"
                 >
-                  {column.tickets.map((ticket) => {
-                    const targets = allowedStatuses(workflows, ticket);
-                    const movable = isMovable(workflows, ticket);
-                    return (
-                      <DraggableCard
-                        key={ticket.id}
-                        ticket={ticket}
-                        slug={slug}
-                        today={today}
-                        maxRank={maxRank}
-                        fields={display.fields}
-                        density={display.density}
-                        canMove={canMove && movable}
-                        targets={targets}
-                        actions={{
-                          organisationId,
-                          priorities: config.priorities,
-                          members,
-                          viewerId,
-                          canAssign: canAssign && movable,
-                          canCreate: canCreate && movable,
-                        }}
-                        busy={state.pending !== null}
-                        onMove={(statusId) => {
-                          const target = targets.find((status) => status.id === statusId);
-                          if (target) void move(ticket, target.key);
-                        }}
-                      />
-                    );
-                  })}
-                </BoardColumn>
+                  <h2 className="text-[13px] font-semibold">
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      onClick={() =>
+                        setCollapsed((current) => {
+                          const next = new Set(current);
+                          if (open) next.add(lane.project.key);
+                          else next.delete(lane.project.key);
+                          return next;
+                        })
+                      }
+                      className="inline-flex items-center gap-1.5 rounded px-1 hover:bg-raised"
+                    >
+                      {open ? (
+                        <ChevronDown size={14} aria-hidden="true" />
+                      ) : (
+                        <ChevronRight size={14} aria-hidden="true" />
+                      )}
+                      <span className="font-mono text-xs text-muted">{lane.project.key}</span>
+                      {lane.project.name}
+                      <span className="font-mono text-xs font-normal text-muted">{lane.total}</span>
+                    </button>
+                  </h2>
+                  {open && (
+                    <div className="flex items-start gap-3">
+                      {lane.columns.map((column) => renderColumn(column, lane.project.key))}
+                    </div>
+                  )}
+                </section>
               );
             })}
+          </div>
+        ) : (
+          <div className="flex items-start gap-3">
+            {shown.map((column) => renderColumn(column, null))}
           </div>
         )}
       </div>

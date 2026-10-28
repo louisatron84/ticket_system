@@ -1,6 +1,6 @@
 'use client';
 
-import { Columns3, List } from 'lucide-react';
+import { Columns3, List, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 
@@ -13,17 +13,21 @@ export function ViewTabs({
   label,
   boardHref,
   listHref,
+  settingsHref,
 }: {
   /** What the tabs are views of, for screen readers ("Project views"). */
   label: string;
   boardHref: string;
   listHref: string;
+  /** A project's settings, for people who may manage projects. */
+  settingsHref?: string;
 }) {
   const pathname = usePathname();
   const search = useSearchParams().toString();
   const tabs = [
     { label: 'Board', path: boardHref, icon: Columns3 },
     { label: 'List', path: listHref, icon: List },
+    ...(settingsHref ? [{ label: 'Settings', path: settingsHref, icon: Settings }] : []),
   ];
 
   return (

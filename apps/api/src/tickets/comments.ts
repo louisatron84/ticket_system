@@ -1,5 +1,6 @@
 import {
   addTicketEvent,
+  commentReactions,
   ticketComments,
   ticketEvents,
   tickets,
@@ -7,8 +8,16 @@ import {
   type Executor,
   type Db,
 } from '@forge/db';
-import { hasPermission, ticketEventSchema, type Comment, type TimelineItem } from '@forge/shared';
-import { and, asc, eq, notInArray } from 'drizzle-orm';
+import {
+  REACTIONS,
+  hasPermission,
+  ticketEventSchema,
+  type Comment,
+  type Reaction,
+  type TimelineItem,
+} from '@forge/shared';
+import { and, asc, eq, inArray, notInArray } from 'drizzle-orm';
+import { clearMentions, syncMentions } from './content';
 import { AppError } from '../errors';
 import { archivedTicketError, type TicketContext } from './service';
 
@@ -66,13 +75,58 @@ type CommentRow = {
   authorName: string;
 };
 
-const toComment = (row: CommentRow): Comment => ({
+type Reactions = Comment['reactions'];
+
+const toComment = (row: CommentRow, reactions: Reactions = []): Comment => ({
   id: row.id,
   author: { id: row.authorId, email: row.authorEmail, displayName: row.authorName },
   body: row.body,
   createdAt: row.createdAt.toISOString(),
   editedAt: row.editedAt ? row.editedAt.toISOString() : null,
+  reactions,
 });
+
+/** Each comment's reactions in the fixed order, with who gave them and whether the viewer did. */
+async function reactionsFor(
+  executor: Executor,
+  commentIds: string[],
+  viewerId: string,
+): Promise<Map<string, Reactions>> {
+  const byComment = new Map<string, Reactions>();
+  if (commentIds.length === 0) return byComment;
+  const rows = await executor
+    .select({
+      commentId: commentReactions.commentId,
+      reaction: commentReactions.reaction,
+      userId: users.id,
+      name: users.displayName,
+    })
+    .from(commentReactions)
+    .innerJoin(users, eq(users.id, commentReactions.userId))
+    .where(inArray(commentReactions.commentId, commentIds))
+    .orderBy(asc(commentReactions.createdAt));
+  for (const id of commentIds) {
+    const mine = rows.filter((row) => row.commentId === id);
+    const list: Reactions = [];
+    for (const reaction of REACTIONS) {
+      const given = mine.filter((row) => row.reaction === reaction);
+      if (given.length === 0) continue;
+      list.push({
+        reaction,
+        count: given.length,
+        mine: given.some((row) => row.userId === viewerId),
+        names: given.map((row) => row.name),
+      });
+    }
+    byComment.set(id, list);
+  }
+  return byComment;
+}
+
+async function withReactions(executor: Executor, row: CommentRow, viewerId: string) {
+  const reactions = await reactionsFor(executor, [row.id], viewerId);
+  return toComment(row, reactions.get(row.id) ?? []);
+}
 
 /** One comment of this ticket, or a 404: a comment id is only ever valid under its own ticket. */
 async function loadComment(
@@ -121,6 +175,13 @@ export async function addComment(
       actorUserId: context.actorUserId,
       event: { type: 'comment.added', data: { commentId: created!.id } },
     });
+    await syncMentions(tx, {
+      organisationId: context.organisationId,
+      sourceTicketId: ticketId,
+      kind: 'comment',
+      sourceId: created!.id,
+      text: input.body,
+    });
     return toComment(await loadComment(tx, context.organisationId, ticketId, created!.id));
   });
 }
@@ -139,7 +200,7 @@ export async function editComment(
       throw new AppError('forbidden', 'You can only edit your own comments.', 403);
     }
     // Saving the same text is not an edit: nothing to mark, nothing to record.
-    if (current.body === input.body) return toComment(current);
+    if (current.body === input.body) return withReactions(tx, current, context.actorUserId);
 
     await tx
       .update(ticketComments)
@@ -151,7 +212,15 @@ export async function editComment(
       actorUserId: context.actorUserId,
       event: { type: 'comment.edited', data: { commentId: current.id } },
     });
-    return toComment(await loadComment(tx, context.organisationId, ticketId, current.id));
+    await syncMentions(tx, {
+      organisationId: context.organisationId,
+      sourceTicketId: ticketId,
+      kind: 'comment',
+      sourceId: current.id,
+      text: input.body,
+    });
+    const saved = await loadComment(tx, context.organisationId, ticketId, current.id);
+    return withReactions(tx, saved, context.actorUserId);
   });
 }
 
@@ -171,6 +240,8 @@ export async function deleteComment(
       throw new AppError('forbidden', 'You can only delete your own comments.', 403);
     }
 
+    await clearMentions(tx, 'comment', current.id);
+    await tx.delete(commentReactions).where(eq(commentReactions.commentId, current.id));
     await tx.delete(ticketComments).where(eq(ticketComments.id, current.id));
     await addTicketEvent(tx, {
       organisationId: context.organisationId,
@@ -190,6 +261,7 @@ export async function loadTimeline(
   executor: Executor,
   organisationId: string,
   ticketKey: string,
+  viewerId: string,
 ): Promise<TimelineItem[]> {
   const ticketId = await ticketIdOf(executor, organisationId, ticketKey);
 
@@ -226,11 +298,16 @@ export async function loadTimeline(
       .orderBy(asc(ticketEvents.createdAt), asc(ticketEvents.id)),
   ]);
 
+  const reactions = await reactionsFor(
+    executor,
+    commentRows.map((row) => row.id),
+    viewerId,
+  );
   const items: (TimelineItem & { sortId: string })[] = [
     ...commentRows.map((row) => ({
       kind: 'comment' as const,
       createdAt: row.createdAt.toISOString(),
-      comment: toComment(row),
+      comment: toComment(row, reactions.get(row.id) ?? []),
       sortId: row.id,
     })),
     ...eventRows.map((row) => ({
@@ -250,4 +327,40 @@ export async function loadTimeline(
     (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.sortId.localeCompare(b.sortId),
   );
   return items.map(({ sortId: _sortId, ...item }) => item as TimelineItem);
+}
+
+/** Adds or takes back the viewer's reaction. Asking for what is already so changes nothing. */
+export async function setReaction(
+  db: Db,
+  input: {
+    context: TicketContext;
+    ticketKey: string;
+    commentId: string;
+    reaction: Reaction;
+    on: boolean;
+  },
+): Promise<Comment> {
+  const { context } = input;
+  return db.transaction(async (tx) => {
+    const ticketId = await editableTicketIdOf(tx, context.organisationId, input.ticketKey);
+    // Locked, so a delete in flight finishes first and this answers 404 rather than failing.
+    const comment = await loadComment(tx, context.organisationId, ticketId, input.commentId, true);
+    if (input.on) {
+      await tx
+        .insert(commentReactions)
+        .values({ commentId: comment.id, userId: context.actorUserId, reaction: input.reaction })
+        .onConflictDoNothing();
+    } else {
+      await tx
+        .delete(commentReactions)
+        .where(
+          and(
+            eq(commentReactions.commentId, comment.id),
+            eq(commentReactions.userId, context.actorUserId),
+            eq(commentReactions.reaction, input.reaction),
+          ),
+        );
+    }
+    return withReactions(tx, comment, context.actorUserId);
+  });
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import type { DevIdentity, Membership, Viewer } from '@forge/shared';
-import { ChevronDown, LogOut, UserRound } from 'lucide-react';
+import { ChevronDown, KeyRound, LogOut, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -91,6 +91,16 @@ export function AccountMenu({
               >
                 <UserRound size={15} aria-hidden="true" />
                 Profile and preferences
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/settings/tokens"
+                onClick={close}
+                className="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] hover:bg-raised"
+              >
+                <KeyRound size={15} aria-hidden="true" />
+                CLI tokens
               </Link>
             </li>
             <li>

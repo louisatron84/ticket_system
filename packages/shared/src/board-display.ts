@@ -5,7 +5,14 @@ import { PROJECT_KEY_PATTERN, STATUS_KEY_PATTERN } from './tickets';
 // they follow the person to every board they open.
 
 /** The things a card can show or hide. Its key, title and assignee are always shown. */
-export const CARD_FIELD_KEYS = ['labels', 'dueDate', 'priority', 'comments', 'type'] as const;
+export const CARD_FIELD_KEYS = [
+  'labels',
+  'dueDate',
+  'priority',
+  'comments',
+  'criteria',
+  'type',
+] as const;
 
 export type CardFields = Record<(typeof CARD_FIELD_KEYS)[number], boolean>;
 
@@ -15,11 +22,20 @@ export const DEFAULT_CARD_FIELDS: CardFields = {
   dueDate: true,
   priority: true,
   comments: true,
+  criteria: true,
   type: false,
 };
 
 export const BOARD_DENSITIES = ['comfortable', 'compact'] as const;
 export type BoardDensity = (typeof BOARD_DENSITIES)[number];
+
+/** Every ticket, or only those with no parent (the big picture). */
+export const BOARD_SHOWS = ['all', 'top'] as const;
+export type BoardShow = (typeof BOARD_SHOWS)[number];
+
+/** No lanes, or one lane (swimlane) per project. Lanes are offered on the Tickets board only. */
+export const BOARD_LANES = ['none', 'project'] as const;
+export type BoardLanes = (typeof BOARD_LANES)[number];
 
 /** What is saved: any part of it may be missing, and a missing part means the default. */
 export const boardDisplaySchema = z
@@ -30,22 +46,33 @@ export const boardDisplaySchema = z
         dueDate: z.boolean(),
         priority: z.boolean(),
         comments: z.boolean(),
+        criteria: z.boolean(),
         type: z.boolean(),
       })
       .partial(),
     density: z.enum(BOARD_DENSITIES),
     heat: z.boolean(),
+    show: z.enum(BOARD_SHOWS),
+    lanes: z.enum(BOARD_LANES),
   })
   .partial();
 export type BoardDisplayPrefs = z.infer<typeof boardDisplaySchema>;
 
 /** The display with every choice settled. */
-export type BoardDisplay = { fields: CardFields; density: BoardDensity; heat: boolean };
+export type BoardDisplay = {
+  fields: CardFields;
+  density: BoardDensity;
+  heat: boolean;
+  show: BoardShow;
+  lanes: BoardLanes;
+};
 
 export const DEFAULT_BOARD_DISPLAY: BoardDisplay = {
   fields: DEFAULT_CARD_FIELDS,
   density: 'comfortable',
   heat: true,
+  show: 'all',
+  lanes: 'none',
 };
 
 /** Saved choices laid over the defaults, field by field. */
@@ -68,6 +95,8 @@ export function undoOf(previous: BoardDisplay, change: BoardDisplayPrefs): Board
   }
   if (change.density !== undefined) undo.density = previous.density;
   if (change.heat !== undefined) undo.heat = previous.heat;
+  if (change.show !== undefined) undo.show = previous.show;
+  if (change.lanes !== undefined) undo.lanes = previous.lanes;
   return undo;
 }
 
@@ -77,6 +106,8 @@ export function applyDisplayChange(current: BoardDisplay, change: BoardDisplayPr
     fields: { ...current.fields, ...change.fields },
     density: change.density ?? current.density,
     heat: change.heat ?? current.heat,
+    show: change.show ?? current.show,
+    lanes: change.lanes ?? current.lanes,
   };
 }
 

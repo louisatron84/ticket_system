@@ -67,6 +67,7 @@ Ticketing (Stage 2). Every table below carries `organisation_id`.
 | `tickets`            | The unit of work: key `WEB-12`, title, description, status, people, dates | unique `(organisation_id, key)` and `(project_id, number)`; title 1 to 200 characters; `version >= 1`; composite FKs below; five indexes plus a trigram title index |
 | `labels`             | A coloured tag, per workspace                                             | unique `(organisation_id, lower(name))`; colour is one of eight names                                                                                               |
 | `ticket_labels`      | Which labels a ticket carries                                             | PK `(ticket_id, label_id)`; both ends in the same workspace (composite FKs)                                                                                         |
+| `ticket_links`       | A typed link between two tickets: `blocks`, `relates_to`, `duplicates`    | both ends in the same workspace (composite FKs); unique `(source, target, kind)`; no self links; `relates_to` stored once per pair                                  |
 | `ticket_comments`    | A comment on a ticket                                                     | `author_id`, `edited_at` (null until edited)                                                                                                                        |
 | `ticket_events`      | The ticket's history, append-only                                         | `source` in (`user`, `system`); `type` and `data` (validated by the shared schema)                                                                                  |
 | `saved_views`        | A named set of list filters, personal or shared                           | `scope` in (`personal`, `shared`); name unique per person for personal views and per workspace for shared ones, ignoring case                                       |
@@ -81,6 +82,11 @@ Ticketing (Stage 2). Every table below carries `organisation_id`.
   were still the old defaults. `0004` also renamed the priorities the same way: `lowest` Heatless,
   `low` Ember, `normal` Flame, `high` Blaze, `critical` Inferno.
   Saved views, filters and board settings refer to keys, so the rename did not touch them.
+- **Structure (P2, migration `0005_ticket_structure`).** `tickets.parent_id` (same workspace, at
+  most three levels, enforced by the API), `tickets.status_before_jam_id` (the status a ticket had
+  before it moved to Jammed), `tickets.origin` (`person`, later `scan`),
+  `project_statuses.is_cancellation` (true for Scrapped: blockers never stop a move to it) and
+  `projects.blockers_stop_completion` (on by default).
 - **Per-person board settings** live in `user_preferences.data` under `board` and `boardColumns`
   (see [architecture](architecture.md#board-settings-per-person)), not in a table of their own.
 - **Key and numbering.** A ticket is `<project key>-<number>`. The number comes from
@@ -92,8 +98,21 @@ Ticketing (Stage 2). Every table below carries `organisation_id`.
   version it started from; a stale one is refused with `409`. See [workflows](workflows.md#simultaneous-edits).
 - **Completion.** `completed_at` is set when the ticket enters a `completed`-category status and
   cleared when it leaves.
-- **Text is plain.** Titles, descriptions and comments are stored and shown as plain text. There is
-  no markup language, no HTML and no embedded images. Line breaks are kept.
+- **Content (P3, migration `0006_ticket_content`).** `tickets.goal` (up to 500 characters);
+  `ticket_criteria` (ordered acceptance criteria: `position`, `text` up to 300 characters,
+  `done_at` and `done_by` set together when ticked; at most 50 per ticket, enforced by the API;
+  not part of the ticket's `version`); `ticket_mentions` (which tickets a description, goal,
+  criterion or comment refers to by key, rewritten whenever that text is saved);
+  `ticket_attachments` (file name, detected type, size, a random storage key; the bytes live in
+  storage, not the database); `comment_reactions` (one row per person, comment and reaction from a
+  fixed set).
+- **CLI tokens (P3b, migration `0007_api_tokens`).** `api_tokens` (owner and workspace, by a
+  composite foreign key to the membership; name, scope `read` or `write`, SHA-256 hash, a short
+  hint, how it was made, required expiry, last use, revocation) and `cli_logins` (a `forge login`
+  waiting for approval: both codes hashed, machine name, address, status `pending`, `approved`,
+  `denied` or `collected`, and, once approved, who approved it for which workspace and scope).
+- **Text is stored as written.** Descriptions, goals, criteria and comments are stored as the person
+  typed them, Markdown subset included, and formatted only when shown. There is no HTML.
 - **Dates.** `due_date` is a calendar date with no time or zone. `estimate_minutes` is whole minutes
   (0 to 99,999) and is written and shown as `1h 30m`.
 - **Archiving.** `archived_at` exists on projects and tickets. Archiving a project stops new tickets;

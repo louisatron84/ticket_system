@@ -16,6 +16,8 @@ import {
   ticketComments,
   ticketEvents,
   ticketLabels,
+  ticketLinks,
+  ticketTypes,
   tickets,
   users,
   type Db,
@@ -201,6 +203,30 @@ describe('demo projects and tickets', () => {
         ),
       );
     expect(events).toHaveLength(5);
+  });
+
+  it('gives WEB an epic with children and a sub-task, and one open blocker', async () => {
+    const all = await db.select().from(tickets);
+    const keyOf = new Map(all.map((t) => [t.id, t.key]));
+    const parents = Object.fromEntries(
+      all.filter((t) => t.parentId).map((t) => [t.key, keyOf.get(t.parentId!)]),
+    );
+    expect(parents).toEqual({
+      'WEB-8': 'WEB-5',
+      'WEB-11': 'WEB-5',
+      'WEB-12': 'WEB-5',
+      'WEB-10': 'WEB-8',
+    });
+    const [epic] = await db
+      .select({ key: ticketTypes.key })
+      .from(tickets)
+      .innerJoin(ticketTypes, eq(ticketTypes.id, tickets.typeId))
+      .where(eq(tickets.key, 'WEB-5'));
+    expect(epic!.key).toBe('epic');
+    const links = await db.select().from(ticketLinks);
+    expect(
+      links.map((l) => [keyOf.get(l.sourceTicketId), l.kind, keyOf.get(l.targetTicketId)]),
+    ).toEqual([['API-3', 'blocks', 'WEB-7']]);
   });
 
   it('is repeatable: reseeding gives the same counts', async () => {

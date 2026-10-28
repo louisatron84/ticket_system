@@ -2,8 +2,11 @@
 
 import { Pencil } from 'lucide-react';
 import { useState } from 'react';
+import { RichEditor } from '@/components/rich-text/rich-editor';
+import { RichText, useRichTextScope } from '@/components/rich-text/rich-text';
 import { validateDescription, validateTitle } from '@/lib/ticket-form';
-import { buttonClass, inputClass, textareaClass } from '@/lib/ui';
+import { buttonClass, inputClass } from '@/lib/ui';
+import { useTicketFiles } from './ticket-content';
 import { useTicketEditor } from './ticket-editor';
 
 /** The ticket's title. Anyone who may edit can change it in place; everyone else just reads it. */
@@ -97,9 +100,11 @@ export function TicketTitle() {
   );
 }
 
-/** The description as plain text with its line breaks kept. Never interpreted as markup. */
+/** The description, formatted. Formatting is drawn from known nodes; the text is never markup. */
 export function TicketDescription() {
   const { ticket, canEdit, saving, save } = useTicketEditor();
+  const scope = useRichTextScope();
+  const files = useTicketFiles();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(ticket.description);
   const problem = validateDescription(draft);
@@ -142,19 +147,18 @@ export function TicketDescription() {
             void commit();
           }}
         >
-          <label htmlFor="ticket-description" className="sr-only">
-            Description
-          </label>
-          <textarea
+          <RichEditor
             id="ticket-description"
+            label="Description"
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={setDraft}
             autoFocus
-            rows={8}
+            rows={10}
             disabled={saving}
-            aria-invalid={problem ? true : undefined}
-            aria-describedby="ticket-description-problem"
-            className={textareaClass(Boolean(problem))}
+            invalid={Boolean(problem)}
+            describedBy="ticket-description-problem"
+            members={scope?.members ?? []}
+            onUpload={files?.canUpload ? files.upload : undefined}
           />
           <p
             id="ticket-description-problem"
@@ -181,9 +185,7 @@ export function TicketDescription() {
           </div>
         </form>
       ) : ticket.description ? (
-        <p className="max-w-prose whitespace-pre-wrap break-words text-[14px] leading-relaxed">
-          {ticket.description}
-        </p>
+        <RichText text={ticket.description} />
       ) : (
         <p className="text-[13px] text-muted">
           {canEdit

@@ -34,6 +34,7 @@ const comment = (minutes: number, author = person(1)): TimelineItem => ({
     id: id(),
     author: { ...author, email: `${author.displayName}@example.test` },
     body: 'A comment',
+    reactions: [],
     createdAt: at(minutes),
     editedAt: null,
   },

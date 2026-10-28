@@ -88,6 +88,8 @@ export function clearFilters(
     sort: filters.sort,
     dir: filters.dir,
     pageSize: filters.pageSize,
+    // The tree is a way of looking at the list, not a filter, so it stays.
+    tree: filters.tree,
     project: options.keepProject ? filters.project : [],
   };
 }
@@ -107,8 +109,39 @@ export function hasActiveFilters(
     filters.reporter.length > 0 ||
     filters.label.length > 0 ||
     filters.due !== undefined ||
-    filters.archived
+    filters.archived ||
+    structureChips(filters).length > 0
   );
+}
+
+/**
+ * The structure filters as chips: "Parent: WEB-20", "Epic: WEB-5", "Linked to: WEB-3",
+ * "Has blocker: Yes", "Top level only". Each carries the change that removes it.
+ */
+export function structureChips(
+  filters: TicketFilters,
+): { key: string; text: string; remove: Partial<TicketFilters> }[] {
+  return [
+    ...(filters.parent
+      ? [{ key: 'parent', text: `Parent: ${filters.parent}`, remove: { parent: undefined } }]
+      : []),
+    ...(filters.epic
+      ? [{ key: 'epic', text: `Epic: ${filters.epic}`, remove: { epic: undefined } }]
+      : []),
+    ...(filters.linked
+      ? [{ key: 'linked', text: `Linked to: ${filters.linked}`, remove: { linked: undefined } }]
+      : []),
+    ...(filters.blocked
+      ? [
+          {
+            key: 'blocked',
+            text: `Has blocker: ${filters.blocked === 'yes' ? 'Yes' : 'No'}`,
+            remove: { blocked: undefined },
+          },
+        ]
+      : []),
+    ...(filters.top ? [{ key: 'top', text: 'Top level only', remove: { top: false } }] : []),
+  ];
 }
 
 /** Newest and most urgent first; soonest due and lowest key first. */

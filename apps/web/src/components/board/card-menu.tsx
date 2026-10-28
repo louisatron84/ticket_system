@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   Copy,
   CopyPlus,
+  CopyX,
   Ellipsis,
   Flag,
   Link as LinkIcon,
@@ -28,6 +29,7 @@ import {
   StatusChoices,
   type MoveTarget,
 } from '@/components/tickets/ticket-choices';
+import { MarkDuplicateDialog } from '@/components/tickets/mark-duplicate-dialog';
 import { useTicketActions } from '@/components/tickets/use-ticket-actions';
 import { updateTicket } from '@/lib/ticket-actions';
 
@@ -54,9 +56,11 @@ function Actions({
   onMove,
   menu,
   actions,
+  onMarkDuplicate,
 }: CardMenuProps & {
   menu: ActionMenuState;
   actions: ReturnType<typeof useTicketActions>;
+  onMarkDuplicate: () => void;
 }) {
   const router = useRouter();
   const [view, setView] = useState<View>('actions');
@@ -205,6 +209,11 @@ function Actions({
     ...(canChange
       ? [
           {
+            label: 'Mark as duplicate…',
+            icon: <CopyX size={14} aria-hidden="true" />,
+            onClick: onMarkDuplicate,
+          },
+          {
             label: 'Archive',
             icon: <Archive size={14} aria-hidden="true" />,
             onClick: actions.archive,
@@ -264,16 +273,39 @@ export function CardMenu({
     ticket: { key: ticket.key, archived: false },
     menu,
   });
+  const [markingDuplicate, setMarkingDuplicate] = useState(false);
   return (
-    <ActionMenu
-      menu={menu}
-      label={`Actions for ${ticket.key}`}
-      icon={<Ellipsis size={14} aria-hidden="true" />}
-      size="sm"
-      disabled={busy || actions.busy}
-      focusFallback={focusColumn}
-    >
-      <Actions {...props} menu={menu} actions={actions} />
-    </ActionMenu>
+    <>
+      <ActionMenu
+        menu={menu}
+        label={`Actions for ${ticket.key}`}
+        icon={<Ellipsis size={14} aria-hidden="true" />}
+        size="sm"
+        disabled={busy || actions.busy}
+        focusFallback={focusColumn}
+      >
+        <Actions
+          {...props}
+          menu={menu}
+          actions={actions}
+          onMarkDuplicate={() => {
+            menu.close();
+            setMarkingDuplicate(true);
+          }}
+        />
+      </ActionMenu>
+      {/* Only on the page while open: a board has one menu per card. */}
+      {markingDuplicate && (
+        <MarkDuplicateDialog
+          organisationId={organisationId}
+          ticketKey={ticket.key}
+          open
+          onClose={() => {
+            setMarkingDuplicate(false);
+            menu.restoreFocus();
+          }}
+        />
+      )}
+    </>
   );
 }

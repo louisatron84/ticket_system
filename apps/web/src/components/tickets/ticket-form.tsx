@@ -8,7 +8,12 @@ import { toast } from 'sonner';
 import { FormField, describedBy } from '@/components/ui/form-field';
 import { ApiRequestError, apiFetch } from '@/lib/api-client';
 import { workspaceHref } from '@/lib/nav';
-import { parseEstimate, validateTicketForm, type TicketFormErrors } from '@/lib/ticket-form';
+import {
+  criteriaLines,
+  parseEstimate,
+  validateTicketForm,
+  type TicketFormErrors,
+} from '@/lib/ticket-form';
 import { buttonClass, inputClass, textareaClass } from '@/lib/ui';
 import { LabelChips } from './label-chip';
 import { CheckboxList, FilterPopover } from './filter-popover';
@@ -47,6 +52,8 @@ export function TicketForm({
   );
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [goal, setGoal] = useState('');
+  const [criteria, setCriteria] = useState('');
   const [typeId, setTypeId] = useState(defaultType?.id ?? '');
   const [priorityId, setPriorityId] = useState(defaultPriority?.id ?? '');
   const [assigneeId, setAssigneeId] = useState('');
@@ -64,6 +71,8 @@ export function TicketForm({
     project,
     title,
     description,
+    goal,
+    criteria,
     typeId,
     priorityId,
     dueDate,
@@ -95,6 +104,8 @@ export function TicketForm({
             typeId,
             priorityId,
             ...(description.trim() ? { description } : {}),
+            ...(goal.trim() ? { goal: goal.trim() } : {}),
+            ...(criteriaLines(criteria).length > 0 ? { criteria: criteriaLines(criteria) } : {}),
             ...(assigneeId ? { assigneeId } : {}),
             ...(componentId ? { componentId } : {}),
             ...(labelIds.length > 0 ? { labelIds } : {}),
@@ -155,11 +166,49 @@ export function TicketForm({
         </FormField>
 
         <FormField
+          id="ticket-goal"
+          label="Goal"
+          optional
+          error={shown('goal')}
+          hint="Why this matters, in a line or two."
+        >
+          <textarea
+            id="ticket-goal"
+            value={goal}
+            onChange={(event) => setGoal(event.target.value)}
+            onBlur={() => touch('goal')}
+            rows={2}
+            aria-invalid={shown('goal') ? true : undefined}
+            aria-describedby={describedBy('ticket-goal')}
+            className={`${textareaClass(Boolean(shown('goal')))} min-h-14`}
+          />
+        </FormField>
+
+        <FormField
+          id="ticket-criteria"
+          label="Acceptance criteria"
+          optional
+          error={shown('criteria')}
+          hint="One per line. The reviewer checks the work against these."
+        >
+          <textarea
+            id="ticket-criteria"
+            value={criteria}
+            onChange={(event) => setCriteria(event.target.value)}
+            onBlur={() => touch('criteria')}
+            rows={4}
+            aria-invalid={shown('criteria') ? true : undefined}
+            aria-describedby={describedBy('ticket-criteria')}
+            className={textareaClass(Boolean(shown('criteria')))}
+          />
+        </FormField>
+
+        <FormField
           id="ticket-description"
           label="Description"
           optional
           error={shown('description')}
-          hint="Plain text. Line breaks are kept."
+          hint="Formatting: **bold**, *italic*, `code`, - lists, [links](https://…), WEB-12 to link a ticket."
         >
           <textarea
             id="ticket-description"

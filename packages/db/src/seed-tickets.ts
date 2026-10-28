@@ -1,9 +1,18 @@
 import type { LabelColor } from '@forge/shared';
 import { DEFAULT_STATUS_TEMPLATE } from '@forge/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { createProject } from './defaults';
 import type { Executor } from './organisations';
-import { components, labels, priorities, ticketComments, ticketTypes } from './schema';
+import {
+  components,
+  labels,
+  priorities,
+  ticketComments,
+  ticketCriteria,
+  ticketLinks,
+  tickets,
+  ticketTypes,
+} from './schema';
 import { addTicketEvent, createTicketRow } from './tickets';
 
 const DAY = 86_400_000;
@@ -24,6 +33,9 @@ type TicketSpec = {
   due: number | null;
   component?: string;
   ageDays: number;
+  goal?: string;
+  /** Acceptance criteria in order; `true` ones are ticked by the assignee. */
+  criteria?: [text: string, done: boolean][];
 };
 
 type ProjectSpec = {
@@ -39,12 +51,27 @@ type WorkspaceSpec = {
   creator: string;
   labels: [name: string, color: LabelColor][];
   projects: ProjectSpec[];
+  /** Parents and blockers, by ticket key, added once every project's tickets exist. */
+  structure?: {
+    parents: [child: string, parent: string][];
+    blocks: [blocker: string, blocked: string][];
+  };
 };
 
 const DEMO: WorkspaceSpec[] = [
   {
     slug: 'acme',
     creator: 'owner',
+    structure: {
+      // WEB-5 is an epic; WEB-10 is a sub-task of WEB-8.
+      parents: [
+        ['WEB-8', 'WEB-5'],
+        ['WEB-11', 'WEB-5'],
+        ['WEB-12', 'WEB-5'],
+        ['WEB-10', 'WEB-8'],
+      ],
+      blocks: [['API-3', 'WEB-7']],
+    },
     labels: [
       ['bug', 'red'],
       ['frontend', 'blue'],
@@ -62,8 +89,14 @@ const DEMO: WorkspaceSpec[] = [
         tickets: [
           {
             title: 'Login redirect loops after session expiry',
+            goal: 'People whose session ran out get back to what they were doing after one sign-in.',
             description:
-              'After the session expires the sign-in page redirects back to itself.\nSteps: sign in, wait for expiry, reload.',
+              'After the session expires the sign-in page redirects back to itself.\n\n**Steps**\n1. Sign in\n2. Wait for the session to expire\n3. Reload\n\nProbably the `returnTo` check; see API-2.',
+            criteria: [
+              ['Signing in after expiry returns to the page you were on', true],
+              ['No redirect loop when the cookie is missing', false],
+              ['A test covers the expired-session path', false],
+            ],
             type: 'bug',
             status: 'in_progress',
             priority: 'high',
@@ -111,7 +144,7 @@ const DEMO: WorkspaceSpec[] = [
           },
           {
             title: 'Migrate form components to the new design system',
-            type: 'improvement',
+            type: 'epic',
             status: 'in_progress',
             priority: 'normal',
             assignee: 'admin',
@@ -437,6 +470,8 @@ export async function insertDemoTickets(
           reporterId: user(spec.reporter),
           title: spec.title,
           description: spec.description ?? '',
+          goal: spec.goal ?? '',
+          criteria: (spec.criteria ?? []).map(([text]) => text),
           typeId: typeIds.get(spec.type)!,
           priorityId: priorityIds.get(spec.priority)!,
           statusId: statusIds[spec.status]!,
@@ -446,6 +481,17 @@ export async function insertDemoTickets(
           labelIds: spec.labels.map((name) => labelIds.get(name)!),
           createdAt,
         });
+        const ticked = (spec.criteria ?? []).flatMap(([, done], position) =>
+          done ? [position] : [],
+        );
+        if (ticked.length > 0 && spec.assignee) {
+          await executor
+            .update(ticketCriteria)
+            .set({ doneAt: createdAt, doneBy: user(spec.assignee) })
+            .where(
+              and(eq(ticketCriteria.ticketId, row.id), inArray(ticketCriteria.position, ticked)),
+            );
+        }
         created.set(row.key, { id: row.id, createdAt, spec });
       }
 
@@ -542,6 +588,32 @@ export async function insertDemoTickets(
           'The refresh endpoint needs a lock per session, not per user.',
           52,
         );
+      }
+    }
+
+    if (workspace.structure) {
+      const idOf = async (key: string) => {
+        const [row] = await executor
+          .select({ id: tickets.id })
+          .from(tickets)
+          .where(and(eq(tickets.organisationId, organisationId), eq(tickets.key, key)));
+        if (!row) throw new Error(`Seed bug: no ticket ${key}`);
+        return row.id;
+      };
+      for (const [child, parent] of workspace.structure.parents) {
+        await executor
+          .update(tickets)
+          .set({ parentId: await idOf(parent) })
+          .where(eq(tickets.id, await idOf(child)));
+      }
+      for (const [blocker, blocked] of workspace.structure.blocks) {
+        await executor.insert(ticketLinks).values({
+          organisationId,
+          sourceTicketId: await idOf(blocker),
+          targetTicketId: await idOf(blocked),
+          kind: 'blocks',
+          createdBy: user(workspace.creator),
+        });
       }
     }
   }

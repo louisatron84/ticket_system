@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  criteriaLines,
+  validateCriteria,
+  validateGoal,
   fieldPermissions,
   parseEstimate,
   statusOptions,
@@ -247,5 +250,23 @@ describe('validateComment', () => {
   it('refuses control characters other than tab and line breaks', () => {
     expect(validateComment('a\u0000b')).toBe('Remove control characters.');
     expect(validateComment('a\u000Bb')).toBe('Remove control characters.');
+  });
+});
+
+describe('goal and criteria', () => {
+  it('reads criteria one per line, skipping blanks', () => {
+    expect(criteriaLines(' A \n\n B\r\n')).toEqual(['A', 'B']);
+  });
+
+  it('refuses a long goal, too many criteria and a long criterion', () => {
+    expect(validateGoal('x'.repeat(500))).toBeUndefined();
+    expect(validateGoal('x'.repeat(501))).toBe('Use 500 characters or fewer.');
+    expect(validateCriteria(Array.from({ length: 51 }, (_, i) => `c${i}`).join('\n'))).toBe(
+      'Use 50 criteria or fewer.',
+    );
+    expect(validateCriteria(`ok\n${'x'.repeat(301)}`)).toBe(
+      'Criterion 2 is longer than 300 characters.',
+    );
+    expect(validateCriteria('fine\nalso fine')).toBeUndefined();
   });
 });

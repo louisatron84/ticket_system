@@ -7,11 +7,13 @@ import {
   type TicketSummary,
 } from '@forge/shared';
 import { useDraggable } from '@dnd-kit/core';
-import { GripVertical, MessageSquare } from 'lucide-react';
+import { CornerLeftUp, GripVertical, ListChecks, MessageSquare, OctagonX } from 'lucide-react';
 import Link from 'next/link';
 import { DueDate, PriorityMark, TypeBadge } from '@/components/tickets/badges';
 import { LabelChips } from '@/components/tickets/label-chip';
+import { ProgressBar } from '@/components/tickets/ticket-progress';
 import { UserChip } from '@/components/tickets/user-chip';
+import { blockedLine, totalOf } from '@/lib/structure';
 import { workspaceHref } from '@/lib/nav';
 import { CardMenu, type CardMenuProps, type MoveTarget } from './card-menu';
 
@@ -52,6 +54,20 @@ export function CardBody({
           {fields.priority && <PriorityMark priority={ticket.priority} maxRank={maxRank} compact />}
         </span>
         <span className="flex shrink-0 items-center gap-1.5">
+          {fields.criteria && ticket.criteria.total > 0 && (
+            <span
+              className={`inline-flex items-center gap-1 text-xs ${ticket.criteria.done === ticket.criteria.total ? 'text-ok' : 'text-muted'}`}
+              title={`${ticket.criteria.done} of ${ticket.criteria.total} acceptance criteria met`}
+            >
+              <ListChecks size={12} aria-hidden="true" />
+              <span className="font-mono" aria-hidden="true">
+                {ticket.criteria.done}/{ticket.criteria.total}
+              </span>
+              <span className="sr-only">
+                {ticket.criteria.done} of {ticket.criteria.total} criteria met
+              </span>
+            </span>
+          )}
           {fields.comments && ticket.commentCount > 0 && (
             <span
               className="inline-flex items-center gap-1 text-xs text-muted"
@@ -74,6 +90,7 @@ export function CardBody({
       {fields.labels && !compact && ticket.labels.length > 0 && (
         <LabelChips labels={ticket.labels} max={2} />
       )}
+      <StructureChips ticket={ticket} />
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-2.5">
           {showDue && (
@@ -85,6 +102,50 @@ export function CardBody({
         </span>
         <UserChip person={ticket.assignee} compact />
       </div>
+    </div>
+  );
+}
+
+const chipClass =
+  'inline-flex items-center gap-1 rounded-full bg-raised px-1.5 py-0.5 font-mono text-[11px] text-muted';
+
+/**
+ * Where the ticket sits in the work: the parent it is part of, how far along its own parts are,
+ * and what blocks it. Only what applies is shown.
+ */
+function StructureChips({ ticket }: { ticket: TicketSummary }) {
+  const blockers = ticket.openBlockerKeys;
+  if (!ticket.parentKey && !ticket.progress && blockers.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {blockers.length > 0 && (
+        <span className={`${chipClass} bg-fail/15 text-fail`} title={blockedLine(blockers)}>
+          <OctagonX size={11} aria-hidden="true" />
+          <span aria-hidden="true">
+            {blockers[0]}
+            {blockers.length > 1 && ` +${blockers.length - 1}`}
+          </span>
+          <span className="sr-only">{blockedLine(blockers)}</span>
+        </span>
+      )}
+      {ticket.progress && (
+        <span
+          className={chipClass}
+          title={`${ticket.progress.completed} of ${totalOf(ticket.progress)} quenched`}
+        >
+          <ProgressBar progress={ticket.progress} width="2.5rem" />
+          <span aria-hidden="true">
+            {ticket.progress.completed}/{totalOf(ticket.progress)}
+          </span>
+        </span>
+      )}
+      {ticket.parentKey && (
+        <span className={chipClass} title={`Part of ${ticket.parentKey}`}>
+          <CornerLeftUp size={11} aria-hidden="true" />
+          <span aria-hidden="true">{ticket.parentKey}</span>
+          <span className="sr-only">Part of {ticket.parentKey}</span>
+        </span>
+      )}
     </div>
   );
 }

@@ -34,6 +34,8 @@ describe('parseTicketFilters: defaults', () => {
       dir: 'desc',
       page: 1,
       pageSize: 50,
+      top: false,
+      tree: false,
     });
   });
 
@@ -123,6 +125,58 @@ describe('parseTicketFilters: refusing bad input', () => {
       expect(result.issues.length).toBeGreaterThan(0);
       for (const issue of result.issues) expect(issue.length).toBeLessThan(200);
     }
+  });
+});
+
+describe('parseTicketFilters: structure', () => {
+  it('reads parent, epic, linked, blocked, top and tree', () => {
+    expect(
+      parsed({
+        parent: 'web-20',
+        epic: 'WEB-5',
+        linked: 'api-3',
+        blocked: 'yes',
+        top: 'true',
+        tree: 'true',
+      }),
+    ).toMatchObject({
+      parent: 'WEB-20',
+      epic: 'WEB-5',
+      linked: 'API-3',
+      blocked: 'yes',
+      top: true,
+      tree: true,
+    });
+    expect(parsed({ blocked: 'no' }).blocked).toBe('no');
+  });
+
+  it('refuses what is not a ticket key or a known choice', () => {
+    for (const input of [
+      { parent: 'WEB' },
+      { epic: '12' },
+      { linked: 'WEB-1; drop' },
+      { blocked: 'maybe' },
+      { top: 'yes' },
+    ]) {
+      expect(parseTicketFilters(input).ok, JSON.stringify(input)).toBe(false);
+    }
+  });
+
+  it('round-trips through search params, leaving defaults out', () => {
+    const filters = parsed({
+      parent: 'WEB-20',
+      epic: 'WEB-5',
+      linked: 'API-3',
+      blocked: 'no',
+      top: 'true',
+      tree: 'true',
+    });
+    const params = ticketFiltersToSearchParams(filters);
+    expect(params.toString()).toBe(
+      'parent=WEB-20&epic=WEB-5&linked=API-3&blocked=no&top=true&tree=true',
+    );
+    expect(parsed(Object.fromEntries(params))).toEqual(filters);
+    expect(ticketFiltersToSearchParams(parsed({})).toString()).toBe('');
   });
 });
 

@@ -1,7 +1,14 @@
 import { formatTicketKey, type TicketEvent } from '@forge/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Executor } from './organisations';
-import { projectStatuses, projects, ticketEvents, ticketLabels, tickets } from './schema';
+import {
+  projectStatuses,
+  projects,
+  ticketCriteria,
+  ticketEvents,
+  ticketLabels,
+  tickets,
+} from './schema';
 
 /** Appends a line to a ticket's history. Rows are only ever added, never changed. */
 export async function addTicketEvent(
@@ -32,6 +39,9 @@ export type NewTicketRow = {
   reporterId: string;
   title: string;
   description?: string;
+  goal?: string;
+  /** Acceptance criteria, in order, all open. */
+  criteria?: string[];
   typeId: string;
   priorityId: string;
   /** Defaults to the project's initial status. */
@@ -87,6 +97,7 @@ export async function createTicketRow(
       key: formatTicketKey(project.key, project.claimed),
       title: input.title,
       description: input.description ?? '',
+      goal: input.goal ?? '',
       typeId: input.typeId,
       statusId: status.id,
       priorityId: input.priorityId,
@@ -109,6 +120,18 @@ export async function createTicketRow(
         organisationId: input.organisationId,
         ticketId: ticket.id,
         labelId,
+      })),
+    );
+  }
+
+  const criteria = input.criteria ?? [];
+  if (criteria.length > 0) {
+    await executor.insert(ticketCriteria).values(
+      criteria.map((text, position) => ({
+        organisationId: input.organisationId,
+        ticketId: ticket.id,
+        position,
+        text,
       })),
     );
   }

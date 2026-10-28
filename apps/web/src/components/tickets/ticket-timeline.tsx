@@ -1,16 +1,25 @@
 'use client';
 
-import type { TimelineItem } from '@forge/shared';
+import {
+  REACTIONS,
+  REACTION_EMOJI,
+  type Comment,
+  type Reaction,
+  type TimelineItem,
+} from '@forge/shared';
 import { Pencil, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
+import { RichEditor } from '@/components/rich-text/rich-editor';
+import { RichText, useRichTextScope } from '@/components/rich-text/rich-text';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ApiRequestError, apiFetch } from '@/lib/api-client';
 import { validateComment } from '@/lib/ticket-form';
 import { formatRelativeTime } from '@/lib/tickets';
 import { groupTimeline, eventAction, type EventGroup } from '@/lib/timeline';
-import { buttonClass, textareaClass } from '@/lib/ui';
+import { buttonClass } from '@/lib/ui';
+import { useTicketFiles } from './ticket-content';
 import { Avatar } from './user-chip';
 
 type CommentItem = Extract<TimelineItem, { kind: 'comment' }>;
@@ -111,6 +120,8 @@ function CommentEntry({
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const problem = validateComment(draft);
+  const scope = useRichTextScope();
+  const files = useTicketFiles();
   const base = `/api/v1/orgs/${organisationId}/tickets/${ticketKey}/comments/${comment.id}`;
 
   async function saveEdit(event: FormEvent) {
@@ -205,18 +216,17 @@ function CommentEntry({
 
         {editing ? (
           <form onSubmit={saveEdit} className="flex flex-col gap-2 p-3">
-            <label htmlFor={`edit-${comment.id}`} className="sr-only">
-              Edit your comment
-            </label>
-            <textarea
+            <RichEditor
               id={`edit-${comment.id}`}
+              label="Edit your comment"
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={setDraft}
               autoFocus
               rows={4}
               disabled={busy}
-              aria-invalid={problem ? true : undefined}
-              className={textareaClass(Boolean(problem))}
+              invalid={Boolean(problem)}
+              members={scope?.members ?? []}
+              onUpload={files?.canUpload ? files.upload : undefined}
             />
             {(problem || error) && (
               <p role="alert" className="text-xs text-fail">
@@ -242,10 +252,11 @@ function CommentEntry({
             </div>
           </form>
         ) : (
-          <p className="whitespace-pre-wrap break-words px-3 py-2.5 text-[14px] leading-relaxed">
-            {comment.body}
-          </p>
+          <div className="px-3 py-2.5">
+            <RichText text={comment.body} />
+          </div>
         )}
+        <Reactions comment={comment} base={base} canReact={canComment && !archived} />
       </article>
 
       <ConfirmDialog
@@ -266,6 +277,8 @@ function CommentEntry({
 
 function CommentBox({ organisationId, ticketKey }: { organisationId: string; ticketKey: string }) {
   const router = useRouter();
+  const scope = useRichTextScope();
+  const files = useTicketFiles();
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -298,22 +311,24 @@ function CommentBox({ organisationId, ticketKey }: { organisationId: string; tic
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-2">
-      <label htmlFor="new-comment" className="text-[13px] font-medium">
+      <span aria-hidden="true" className="text-[13px] font-medium">
         Add a comment
-      </label>
-      <textarea
+      </span>
+      <RichEditor
         id="new-comment"
+        label="Add a comment"
         value={body}
-        onChange={(event) => setBody(event.target.value)}
+        onChange={setBody}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void submit();
         }}
         rows={3}
         disabled={busy}
-        aria-invalid={problem && body.trim().length > 0 ? true : undefined}
-        aria-describedby="new-comment-hint"
+        invalid={Boolean(error) || Boolean(problem && body.trim().length > 0)}
+        describedBy="new-comment-hint"
         placeholder="Write a comment"
-        className={textareaClass(Boolean(error))}
+        members={scope?.members ?? []}
+        onUpload={files?.canUpload ? files.upload : undefined}
       />
       <div className="flex items-center justify-between gap-3">
         <p
@@ -321,9 +336,7 @@ function CommentBox({ organisationId, ticketKey }: { organisationId: string; tic
           role={error || (problem && body.trim().length > 0) ? 'alert' : undefined}
           className={`text-xs ${error || (problem && body.trim().length > 0) ? 'text-fail' : 'text-muted'}`}
         >
-          {error ??
-            (body.trim().length > 0 ? problem : null) ??
-            'Plain text. Press Ctrl+Enter to post.'}
+          {error ?? (body.trim().length > 0 ? problem : null) ?? 'Press Ctrl+Enter to post.'}
         </p>
         <button
           type="submit"
@@ -334,5 +347,102 @@ function CommentBox({ organisationId, ticketKey }: { organisationId: string; tic
         </button>
       </div>
     </form>
+  );
+}
+
+/** The reactions on a comment, and a way to add one from the fixed set. */
+function Reactions({
+  comment,
+  base,
+  canReact,
+}: {
+  comment: Comment;
+  base: string;
+  canReact: boolean;
+}) {
+  const router = useRouter();
+  const [reactions, setReactions] = useState(comment.reactions);
+  const [picking, setPicking] = useState(false);
+  const [seen, setSeen] = useState(comment.reactions);
+  // A newer copy from the server (after a refresh) replaces what this showed.
+  if (comment.reactions !== seen) {
+    setSeen(comment.reactions);
+    setReactions(comment.reactions);
+  }
+  if (reactions.length === 0 && !canReact) return null;
+
+  async function toggle(reaction: Reaction, on: boolean) {
+    setPicking(false);
+    try {
+      const next = await apiFetch<Comment>(`${base}/reactions`, {
+        method: 'PUT',
+        json: { reaction, on },
+      });
+      setReactions(next.reactions);
+    } catch (failure) {
+      toast.error(failure instanceof ApiRequestError ? failure.message : 'Could not react.');
+      router.refresh();
+    }
+  }
+
+  const unused = REACTIONS.filter((reaction) => !reactions.some((r) => r.reaction === reaction));
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1 px-3 pb-2"
+      aria-label="Reactions"
+      role="group"
+    >
+      {reactions.map((r) => (
+        <button
+          key={r.reaction}
+          type="button"
+          disabled={!canReact}
+          aria-pressed={r.mine}
+          aria-label={`${REACTION_EMOJI[r.reaction]} ${r.count}, from ${r.names.join(', ')}`}
+          title={r.names.join(', ')}
+          onClick={() => void toggle(r.reaction, !r.mine)}
+          className={`inline-flex h-6 items-center gap-1 rounded-full border px-2 text-xs ${r.mine ? 'border-active/60 bg-active/15' : 'border-edge hover:border-edge-strong'}`}
+        >
+          <span aria-hidden="true">{REACTION_EMOJI[r.reaction]}</span>
+          <span aria-hidden="true">{r.count}</span>
+        </button>
+      ))}
+      {canReact && unused.length > 0 && (
+        <span className="relative">
+          <button
+            type="button"
+            aria-label="Add a reaction"
+            aria-expanded={picking}
+            onClick={() => setPicking((open) => !open)}
+            className="inline-flex h-6 items-center rounded-full border border-dashed border-edge px-2 text-xs text-muted hover:text-text"
+          >
+            +☺
+          </button>
+          {picking && (
+            <span
+              role="menu"
+              aria-label="Reactions"
+              className="absolute left-0 top-7 z-20 flex gap-0.5 rounded-md border border-edge-strong bg-panel p-1 shadow-lg"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') setPicking(false);
+              }}
+            >
+              {unused.map((reaction) => (
+                <button
+                  key={reaction}
+                  type="button"
+                  role="menuitem"
+                  aria-label={`React with ${REACTION_EMOJI[reaction]}`}
+                  onClick={() => void toggle(reaction, true)}
+                  className="inline-flex size-7 items-center justify-center rounded text-base hover:bg-raised"
+                >
+                  {REACTION_EMOJI[reaction]}
+                </button>
+              ))}
+            </span>
+          )}
+        </span>
+      )}
+    </div>
   );
 }

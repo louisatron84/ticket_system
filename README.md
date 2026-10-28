@@ -10,7 +10,7 @@ create, edit, comment on, filter, save as views, and move between statuses on a 
 ticket page, following each project's workflow. The Tickets page has Board and List tabs, so every
 project's tickets can be seen and moved on one board. Common work is quick: archive and duplicate,
 create straight into a board column, change status, priority and assignee from a card or a list row,
-change many tickets at once, and press Ctrl+K for the command menu or `?` for the keyboard shortcuts. Statuses are named after the heat of the work (Cold
+change many tickets at once, and press Ctrl+K for the command menu or `?` for the keyboard shortcuts. Tickets can be split into parts (epic, ticket, sub-task, with progress shown on the parent), linked to each other, and blocked: a ticket held up by an unfinished one cannot be marked done, though it can always be scrapped. Statuses are named after the heat of the work (Cold
 Steel, Warming, In the Forge, Tempering, Jammed, Quenched, Scrapped) and coloured to match, the
 priorities run from Heatless through Ember, Flame and Blaze to Inferno, and each person can arrange their own board from its Display menu: which card details show, how tightly
 cards pack, and which columns appear and in what order. Roles decide what each account can see and
@@ -53,11 +53,28 @@ troubleshooting: [docs/setup.md](docs/setup.md). Who each test account is:
 | `npm run check`                | Typecheck, lint, format check and all unit/integration tests           |
 | `npm run test:e2e`             | Browser tests on their own isolated stack ([testing](docs/testing.md)) |
 
+## The forge command
+
+`apps/cli` is a small command line for moving tickets. Install it once with
+`npm link -w @forge/cli`, then:
+
+```sh
+forge login                 # approve in the browser (or: forge login --token)
+forge hammer WEB-1          # move WEB-1 to In the Forge
+forge cold|warm|hammer|temper|jammed|quench|scrap <KEY>
+forge whoami
+forge logout                # also revokes the token on the server
+```
+
+Moves follow the ticket's workflow and the blocker rule exactly as the board does. Tokens are
+managed under the account menu, **CLI tokens**; see [security](docs/security.md#command-line-tokens).
+
 ## Repository map
 
 ```text
 apps/api         Fastify HTTP API (sessions, authorisation, workspaces, members, projects, tickets, health)
 apps/web         Next.js application shell and pages (projects, ticket list, ticket page, board)
+apps/cli         The forge command: sign in and move tickets from a terminal
 packages/shared  Zod schemas, permissions, role rules, ticket rules and list filters used by both apps
 packages/db      Drizzle schema, migrations, seed and reset, connection pool
 scripts/         Local database launcher

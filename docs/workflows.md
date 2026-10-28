@@ -172,6 +172,25 @@ Blocked"); only new history uses the new ones.
 Events carry a `source` (`user` or `system`). Only `user` is written today; `system` is reserved for
 changes made by automation.
 
+## Parents, links and blockers
+
+A ticket can sit under a parent, up to three levels: epic, ticket, sub-task. An epic (type `epic`)
+is always top level. Tickets can be linked: blocks / is blocked by, relates to, duplicates / is
+duplicated by. Parents and links can cross projects of a workspace, never workspaces.
+
+An **open blocker** is a ticket that blocks this one and is not completed (archived or not). While a
+ticket has one, it **cannot be moved to a completed status that means done**: "WEB-1 can't be
+quenched while API-4 is open." It **can always be scrapped**. Which completed status means "won't
+do" is the status flag `is_cancellation` (true for Scrapped), not its name. The rule is a project
+setting, on by default, decided by the blocked ticket's own project.
+
+Adding a blocker does not move a ticket to Jammed, and removing the last one does not move it back:
+a person decides. When a ticket does move to Jammed, it remembers the status it came from
+(`status_before_jam_id`) so the security gate can later put it back.
+
+"Mark as duplicate" links the ticket to the original and moves it to Scrapped in one step, following
+the workflow (a Quenched ticket must be reopened first).
+
 ## What cannot be changed yet
 
 Part B of Stage 2 adds the screens for editing a project's statuses and transitions and for

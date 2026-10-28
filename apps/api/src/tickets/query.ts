@@ -162,6 +162,35 @@ export function conditionsFor(
       break;
   }
 
+  // Structure. Each names a ticket by key; a key that does not exist here matches nothing.
+  const ticketIdOf = (key: string) =>
+    sql`(select k.id from tickets k where k.organisation_id = ${actor.organisationId} and k.key = ${key})`;
+  if (filters.parent) add(sql`${tickets.parentId} = ${ticketIdOf(filters.parent)}`);
+  if (filters.epic) {
+    // Depth is at most three, so anything under a ticket is its child or its child's child.
+    add(sql`(${tickets.parentId} = ${ticketIdOf(filters.epic)} or exists (
+      select 1 from tickets m where m.id = ${tickets.parentId} and m.parent_id = ${ticketIdOf(filters.epic)}
+    ))`);
+  }
+  if (filters.linked) {
+    add(sql`exists (
+      select 1 from ticket_links l
+      where (l.source_ticket_id = ${tickets.id} and l.target_ticket_id = ${ticketIdOf(filters.linked)})
+         or (l.target_ticket_id = ${tickets.id} and l.source_ticket_id = ${ticketIdOf(filters.linked)})
+    )`);
+  }
+  if (filters.blocked) {
+    // Blocked means not finished and held up by a ticket that is not finished either.
+    const blocked = sql`(${projectStatuses.category} <> 'completed' and exists (
+      select 1 from ticket_links l
+      join tickets b on b.id = l.source_ticket_id
+      join project_statuses bs on bs.id = b.status_id
+      where l.kind = 'blocks' and l.target_ticket_id = ${tickets.id} and bs.category <> 'completed'
+    ))`;
+    add(filters.blocked === 'yes' ? blocked : sql`not ${blocked}`);
+  }
+  if (filters.top) add(isNull(tickets.parentId));
+
   return conditions;
 }
 
@@ -201,6 +230,7 @@ export async function listTickets(
   actor: QueryActor,
   filters: TicketFilters,
 ): Promise<TicketList> {
+  if (filters.tree) return listTicketTree(executor, actor, filters);
   const { ids, total } = await searchTicketIds(executor, {
     where: conditionsFor(filters, actor),
     order: orderFor(filters.sort, filters.dir),
@@ -212,5 +242,93 @@ export async function listTickets(
     total,
     page: filters.page,
     pageSize: filters.pageSize,
+  };
+}
+
+/** How many matches tree mode arranges at most; the total still counts every match. */
+const TREE_MATCH_LIMIT = 2000;
+
+/**
+ * Tree mode: a page is up to `pageSize` top-level rows, each with every matching ticket of its
+ * tree nested under it. Ancestors that do not match are included as context rows so a child always
+ * sits under its real parent, even one in another project. Siblings keep the filter's sort order.
+ */
+async function listTicketTree(
+  executor: Executor,
+  actor: QueryActor,
+  filters: TicketFilters,
+): Promise<TicketList> {
+  const { ids: matched, total } = await searchTicketIds(executor, {
+    where: conditionsFor(filters, actor),
+    order: orderFor(filters.sort, filters.dir),
+    limit: TREE_MATCH_LIMIT,
+    offset: 0,
+  });
+
+  // Every ancestor of a match, at most two steps up.
+  const parentOf = new Map<string, string | null>();
+  let frontier = matched;
+  while (frontier.length > 0) {
+    const rows = await executor
+      .select({ id: tickets.id, parentId: tickets.parentId })
+      .from(tickets)
+      .where(and(eq(tickets.organisationId, actor.organisationId), inArray(tickets.id, frontier)));
+    for (const row of rows) parentOf.set(row.id, row.parentId);
+    frontier = rows.flatMap((row) =>
+      row.parentId && !parentOf.has(row.parentId) ? [row.parentId] : [],
+    );
+  }
+
+  // A node ranks where its earliest matching descendant (or itself) ranks.
+  const rank = new Map<string, number>();
+  matched.forEach((id, index) => {
+    for (let node: string | null | undefined = id; node; node = parentOf.get(node)) {
+      if (!rank.has(node) || rank.get(node)! > index) rank.set(node, index);
+    }
+  });
+  const rootOf = (id: string) => {
+    let node = id;
+    while (parentOf.get(node)) node = parentOf.get(node)!;
+    return node;
+  };
+  const roots = [...new Set(matched.map(rootOf))].sort((a, b) => rank.get(a)! - rank.get(b)!);
+  const pageRoots = new Set(
+    roots.slice((filters.page - 1) * filters.pageSize, filters.page * filters.pageSize),
+  );
+
+  const children = new Map<string, string[]>();
+  for (const node of rank.keys()) {
+    const parent = parentOf.get(node);
+    if (parent && rank.has(parent)) children.set(parent, [...(children.get(parent) ?? []), node]);
+  }
+  const order: { id: string; depth: number }[] = [];
+  const visit = (id: string, depth: number) => {
+    order.push({ id, depth });
+    const below = (children.get(id) ?? []).sort((a, b) => rank.get(a)! - rank.get(b)!);
+    for (const child of below) visit(child, depth + 1);
+  };
+  for (const root of roots) if (pageRoots.has(root)) visit(root, 1);
+
+  const isMatch = new Set(matched);
+  const summaries = new Map(
+    (
+      await loadTicketSummaries(
+        executor,
+        actor.organisationId,
+        order.map((row) => row.id),
+      )
+    ).map((summary) => [summary.id, summary] as const),
+  );
+  const rows = order.flatMap(({ id, depth }) => {
+    const ticket = summaries.get(id);
+    return ticket ? [{ ticket, depth, context: !isMatch.has(id) }] : [];
+  });
+  return {
+    items: rows.filter((row) => !row.context).map((row) => row.ticket),
+    total,
+    page: filters.page,
+    pageSize: filters.pageSize,
+    rows,
+    rootTotal: roots.length,
   };
 }

@@ -17,6 +17,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api-client';
 
@@ -66,14 +67,23 @@ export function BoardPrefsProvider({
     latest.current = { display, columnPrefs };
   }, [display, columnPrefs]);
 
-  const saveDisplay = useCallback((change: BoardDisplayPrefs, previous: BoardDisplay) => {
-    apiFetch('/api/v1/me/preferences', { method: 'PATCH', json: { board: change } }).catch(() => {
-      // Undo only what this change touched, not whatever the person did after it.
-      const undo = undoOf(previous, change);
-      setDisplay((current) => applyDisplayChange(current, undo));
-      toast.error(SAVE_FAILED);
-    });
-  }, []);
+  const router = useRouter();
+  const saveDisplay = useCallback(
+    (change: BoardDisplayPrefs, previous: BoardDisplay) => {
+      apiFetch('/api/v1/me/preferences', { method: 'PATCH', json: { board: change } })
+        .then(() => {
+          // Which tickets the server sends depends on "Show", so fetch the board again.
+          if (change.show !== undefined && change.show !== previous.show) router.refresh();
+        })
+        .catch(() => {
+          // Undo only what this change touched, not whatever the person did after it.
+          const undo = undoOf(previous, change);
+          setDisplay((current) => applyDisplayChange(current, undo));
+          toast.error(SAVE_FAILED);
+        });
+    },
+    [router],
+  );
 
   const updateDisplay = useCallback(
     (change: BoardDisplayPrefs) => {

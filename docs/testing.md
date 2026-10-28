@@ -16,10 +16,10 @@ All three databases must be UTF-8 (see [setup](setup.md#the-database-must-be-utf
 store emoji and Arabic text on purpose, and a database in another encoding fails them (and
 `db:migrate` refuses it before that).
 
-After P1 (everyday speed: archive, duplicate, quick create, card and list actions, bulk edit, the
-command menu and shortcuts) the suites held roughly: shared 287 tests, database 99, API 803, web
-logic 392, browser 153. These numbers drift; the commands print
-the live ones.
+After P3 (ticket parts, formatting, mentions, attachments, reactions, CLI tokens and the `forge`
+command) the suites held roughly: shared 339 tests, database 112, API 916 (including the real `forge`
+binary run against a live API in `cli-binary.test.ts`), web logic 424, CLI 5, browser 193. These
+numbers drift; the commands print the live ones.
 
 ## What is covered
 

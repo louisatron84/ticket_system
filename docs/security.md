@@ -24,6 +24,44 @@ What the code does today to protect people and data, and what it does not do yet
 - Sessions have an absolute lifetime only. There is no idle timeout and no "sign out everywhere"
   yet.
 
+## Command-line tokens
+
+The `forge` command (`apps/cli`) signs in with a personal access token, built to the usual
+industry standard (the owner's choice; stronger measures are listed in
+[known limitations](known-limitations.md#security-gaps-see-also-security)).
+
+- A token is `forge_pat_` and 32 random bytes (base64url), recognisable by secret scanners. It is
+  shown **once**; the database keeps only its SHA-256 hash and the first four characters for
+  recognition. Audit rows never contain it.
+- Every token has **one workspace**, **one scope** (`read`: safe methods only; `write`: read and
+  change) and a **required expiry** (1 to 365 days, 30 by default). It can be revoked at once on the
+  CLI tokens page; `forge logout` revokes it on the server too.
+- A token is honoured only by `orgAccess` (in its own workspace; another workspace is the same
+  `404` as for a non-member) and by `/api/v1/cli/*`. Every other route needs a browser session and
+  refuses a token with `403`, so a token can never make, list or revoke tokens, change
+  preferences, approve another login or sign out a browser.
+- A token only ever does **ticket work** (`tickets.view`, `tickets.create`, `tickets.edit`,
+  `tickets.assign`, `tickets.comment`). Renaming the workspace, managing members, roles or
+  projects, and reading the member list are refused with `403` even for an owner's token, and
+  permission checks inside handlers see only those five.
+- The owner's membership and role are checked on **every** request: a token is never worth more
+  than its owner's role is now.
+- A request carrying both a session cookie and a bearer token is refused (`401`).
+- `token.created`, `token.first_used` (with the address) and `token.revoked` are audit events.
+  Last use (time and address) is recorded at most once a minute.
+- **Browser approval** (`forge login`, device-flow style): the command line gets a secret 32-byte
+  device code and shows an 8-character user code from an alphabet without look-alikes. Both are
+  stored only as hashes and expire after 10 minutes. The approval page needs a browser session,
+  shows the code, machine name, address and time, and asks for a workspace and scope before Allow.
+  A login is decided once. The token is made only when the command line collects it, exactly once,
+  so no token is ever stored waiting. Starting a login is limited to 10 per address per 10 minutes,
+  polling to 60 a minute (and `slow_down` if faster than every 3 seconds), and code lookups and
+  decisions to 5 a minute per person.
+- **On the machine**: the config (`~/.forge/config.json`, or `FORGE_CONFIG_DIR`) is written
+  owner-only (mode `0600`; on Windows the inherited permissions are removed and only the current
+  user is granted access). The command refuses plain `http://` to anything but `localhost` and
+  `127.0.0.1`, does not follow redirects, and reads a pasted token without echoing it.
+
 ## Cross-site requests
 
 - `SameSite=Lax` stops browsers attaching the cookie to cross-site writes.
@@ -60,21 +98,28 @@ What the code does today to protect people and data, and what it does not do yet
 Every route below is under `/api/v1/orgs/:orgId` and goes through `orgAccess`, so all of them
 answer `401` when not signed in and the identical `404` for a workspace you are not in.
 
-| Action                                                                                 | Permission needed                                                    |
-| -------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| List and read projects, tickets, the boards, the timeline, ticket configuration, views | `tickets.view`                                                       |
-| Create a project, edit or archive a project, add a component                           | `projects.manage`                                                    |
-| Create a ticket                                                                        | `tickets.create` (and `tickets.assign` to set an assignee)           |
-| Edit a ticket, change its status, labels or fields                                     | `tickets.edit` (and `tickets.assign` to change the assignee)         |
-| Create a label                                                                         | `tickets.edit`                                                       |
-| Add a comment                                                                          | `tickets.comment`                                                    |
-| Edit a comment                                                                         | `tickets.comment`, and you must be its **author**                    |
-| Delete a comment                                                                       | its author, or anyone with `tickets.edit`                            |
-| Archive or unarchive a ticket                                                          | `tickets.edit`                                                       |
-| Duplicate a ticket                                                                     | `tickets.create` (the assignee is copied only with `tickets.assign`) |
-| Change many tickets at once (bulk)                                                     | `tickets.edit`, and `tickets.assign` to set an assignee              |
-| Create, change or delete a **personal** saved view                                     | `tickets.view`, and it must be your own                              |
-| Create, change or delete a **shared** saved view                                       | `projects.manage`                                                    |
+| Action                                                                                 | Permission needed                                                                   |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| List and read projects, tickets, the boards, the timeline, ticket configuration, views | `tickets.view`                                                                      |
+| Create a project, edit or archive a project, add a component                           | `projects.manage`                                                                   |
+| Create a ticket                                                                        | `tickets.create` (and `tickets.assign` to set an assignee)                          |
+| Edit a ticket, change its status, labels or fields                                     | `tickets.edit` (and `tickets.assign` to change the assignee)                        |
+| Create a label                                                                         | `tickets.edit`                                                                      |
+| Add a comment                                                                          | `tickets.comment`                                                                   |
+| Edit a comment                                                                         | `tickets.comment`, and you must be its **author**                                   |
+| Delete a comment                                                                       | its author, or anyone with `tickets.edit`                                           |
+| Archive or unarchive a ticket                                                          | `tickets.edit`                                                                      |
+| Duplicate a ticket                                                                     | `tickets.create` (the assignee is copied only with `tickets.assign`)                |
+| Change many tickets at once (bulk)                                                     | `tickets.edit`, and `tickets.assign` to set an assignee                             |
+| Set or clear a ticket's parent; add or remove a link; mark a ticket as a duplicate     | `tickets.edit` (the ticket in the address; the other must be in the same workspace) |
+| Add, edit, tick, reorder or remove an acceptance criterion                             | `tickets.edit`                                                                      |
+| Upload an attachment                                                                   | `tickets.edit`                                                                      |
+| Download an attachment                                                                 | `tickets.view`, checked on every download against the file's own ticket             |
+| Remove an attachment                                                                   | its uploader, or anyone with `tickets.edit`                                         |
+| React to a comment                                                                     | `tickets.comment`                                                                   |
+| Turn a project's blocker rule on or off                                                | `projects.manage` (recorded in the audit log as a project update)                   |
+| Create, change or delete a **personal** saved view                                     | `tickets.view`, and it must be your own                                             |
+| Create, change or delete a **shared** saved view                                       | `projects.manage`                                                                   |
 
 Other rules the API enforces, each with a test that does not go through the page:
 
@@ -96,11 +141,27 @@ Other rules the API enforces, each with a test that does not go through the page
   validated like any other input. An over-long or malformed value is a `422`, never a `500`.
 - **Searching cannot be turned into a pattern.** `%`, `_` and `\` in the search text are escaped, so
   `%` finds only a literal `%`. Queries are parameterised.
-- **Text is shown as text.** Titles, descriptions, comments and labels are plain text and React
-  escapes them. A browser test saves `<img onerror>`, `<script>` and `<svg onload>` markup as a
-  title, a description and a comment and checks it is displayed literally, creates no element and
-  runs nothing. There are no links, images or HTML in user text to sanitise, and the web app does
-  not use `dangerouslySetInnerHTML` anywhere.
+- **Formatting can never become markup.** Descriptions, goals, criteria and comments may use a small
+  Markdown subset (P3). One parser (`packages/shared/src/rich-text.ts`) turns text into a tree of
+  known nodes, and the web app draws that tree with React elements; anything the parser does not
+  recognise stays the characters it is. No HTML string is ever built and the web app does not use
+  `dangerouslySetInnerHTML` anywhere. Only `http:`, `https:` and `mailto:` become links
+  (`rel="noopener noreferrer nofollow"`); `javascript:`, `data:` and the rest stay text. Images
+  come only from this ticket's own attachments (`attachment:<id>`), never from an outside address.
+  Lookahead for brackets is capped, so hostile text cannot make parsing slow (a test parses 20,000
+  characters of each pathological pattern in under 250 ms). Browser tests save `<img onerror>`,
+  `<script>` and `<svg onload>` markup and a `javascript:` link and check nothing runs.
+- **Ticket references and mentions stay inside the workspace.** A key becomes a link only when the
+  API finds that ticket in the same workspace; "mentioned in" rows are written only for such
+  tickets. A mention stores a user id; it shows the member's current name.
+- **Attachments are judged by their content.** The first bytes decide the type (PNG, JPEG, GIF,
+  WebP, PDF, ZIP, or UTF-8 text without NUL bytes or a leading HTML/SVG/XML tag for `.txt`, `.md`,
+  `.csv`, `.json`, `.log`); the name and the claimed type are ignored, so an SVG or an HTML page
+  renamed `.png` is refused. At most 10 MB each and 100 per ticket. Files are stored under a random
+  64-hex key (owner-only file mode); the name is metadata only, cut to its last path segment.
+  Downloads carry `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`,
+  `Content-Security-Policy: default-src 'none'; sandbox` and `Cache-Control: private, no-store`;
+  only raster images may be shown inline, as thumbnails.
 - **A person sees only what they may.** The web app hides editing controls from people who lack the
   permission, but the same calls made by hand are refused. The assignee picker shows only to
   people who may also see the member list (`members.view`); everyone else sees the current assignee

@@ -141,6 +141,53 @@ results the same way.
   a field is never a shortcut. `<html data-keyboard="ready">` and `data-page-commands="ready"` tell
   the browser tests the listeners are attached.
 
+## Structure
+
+Tickets can have parts and links (P2). The rules live in two API modules:
+
+- `apps/api/src/tickets/structure.ts`: setting a parent (`PUT /tickets/:key/parent`), adding and
+  removing links (`POST /tickets/:key/links`, `DELETE /tickets/:key/links/:id`) and marking a
+  duplicate (`POST /tickets/:key/mark-duplicate`). Parent and link writes are relationship writes:
+  they neither check nor bump either ticket's `version`. Each takes a per-workspace advisory lock
+  and locks the tickets involved in id order, so depth, loop and "blocks each other" checks never
+  race. At most three levels (epic, ticket, sub-task); an epic is always top level.
+- `apps/api/src/tickets/blockers.ts`: `openBlockersOf` (tickets blocking these that are not
+  completed) and `completionRefusal`, the one place the blocker rule is decided. `updateTicket`
+  asks it on every status change, so the ticket page, the board, bulk edit and the command menu are
+  all guarded. The security gate will ask the same question before a merge.
+
+Summaries carry `parentKey`, `progress` (all descendants by bucket, scrapped and archived left
+out) and `openBlockerKeys`; the detail adds `ancestors`, the `children` tree and `links`. All are
+read in batches per page (`structure-read.ts`). The list's tree mode (`tree=true`) pages by
+top-level rows and adds greyed context rows for ancestors that do not match the filters.
+
+On screen: the ticket page lists child tickets under the description and shows Progress, Parent and
+Links in the right bar, with a "Blocked by" notice at the top; cards show a progress chip, their
+parent and their blocker; the Display menu has "Top level only" and, on the Tickets board, lanes per
+project (a project is a repository, so these become repository lanes later). A project's Settings
+tab holds the blocker rule switch.
+
+## Content
+
+What a ticket says beyond its fields (P3a):
+
+- **Formatting**: `packages/shared/src/rich-text.ts` parses the Markdown subset into nodes, also
+  used by the API to find ticket references. `apps/web/src/components/rich-text/` renders nodes
+  (`RichText`, `RichLine`) and edits text (`RichEditor`: Write and Preview tabs, `@` suggestions,
+  paste or drop an image to upload it).
+- **Goal and criteria**: `tickets.goal` is saved like any field (versioned). Criteria have their own
+  routes (`POST /tickets/:key/criteria`, `PATCH` and `DELETE /tickets/:key/criteria/:id`,
+  `PUT /tickets/:key/criteria/order`) in `tickets/criteria.ts`; each locks the ticket row, writes a
+  history line and returns the whole list. Summaries carry `criteria: { done, total }`.
+- **References**: `tickets/content.ts` rewrites `ticket_mentions` for each saved piece of text and
+  reads `mentionedIn` and `references` for the detail.
+- **Attachments**: `apps/api/src/attachments/` (`sniff.ts` decides the type from the bytes,
+  `storage.ts` is the storage interface with a local-disk driver, `service.ts` the rules). Uploads
+  are the raw file (`application/octet-stream`, name in `X-File-Name`), so no multipart parser is
+  involved.
+- **Reactions**: `PUT /tickets/:key/comments/:id/reactions` with `{ reaction, on }`; comments carry
+  their reactions, counted, with names and whether the viewer gave each.
+
 ## Board settings per person
 
 How a person likes their board (the **Display** menu) belongs to the person, not to the project.

@@ -1,6 +1,7 @@
 'use client';
 
 import { useTicketEditor } from '@/components/tickets/ticket-editor';
+import { MARK_DUPLICATE_EVENT } from '@/components/tickets/mark-duplicate-dialog';
 import { useTicketActions } from '@/components/tickets/use-ticket-actions';
 import type { Command } from '@/lib/commands';
 import { usePageCommands } from './command-menu';
@@ -20,6 +21,7 @@ export function TicketCommands({
   viewerId,
   canArchive,
   canCreate,
+  canMarkDuplicate,
 }: {
   organisationId: string;
   slug: string;
@@ -27,6 +29,8 @@ export function TicketCommands({
   /** tickets.edit, which archiving and unarchiving need even on an archived ticket. */
   canArchive: boolean;
   canCreate: boolean;
+  /** tickets.edit, the ticket and its project not archived. */
+  canMarkDuplicate: boolean;
 }) {
   // On an archived ticket the editor says nobody may edit or assign, which is what we want here.
   const { ticket, canEdit, canAssign, save } = useTicketEditor();
@@ -64,6 +68,13 @@ export function TicketCommands({
     action('copy-key', 'Copy key', () => void actions.copyKey()),
     action('copy-link', 'Copy link', () => void actions.copyLink()),
     ...(canCreate ? [action('duplicate', 'Duplicate', () => void actions.duplicate())] : []),
+    ...(canMarkDuplicate
+      ? [
+          action('mark-duplicate', 'Mark as duplicate…', () =>
+            window.dispatchEvent(new CustomEvent(MARK_DUPLICATE_EVENT, { detail: ticket.key })),
+          ),
+        ]
+      : []),
     ...(canArchive
       ? [action('archive', archived ? 'Unarchive' : 'Archive', () => void actions.archive())]
       : []),

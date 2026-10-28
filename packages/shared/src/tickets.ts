@@ -71,6 +71,8 @@ type TemplateStatus = {
   name: string;
   category: StatusCategory;
   initial?: true;
+  /** A completed status meaning "won't do"; blockers never stop a move to it. */
+  cancellation?: true;
 };
 
 /** Copied into every new project, which can then diverge from it. */
@@ -85,7 +87,7 @@ export const DEFAULT_STATUS_TEMPLATE: {
     { key: 'in_review', name: 'Tempering', category: 'in_progress' },
     { key: 'blocked', name: 'Jammed', category: 'in_progress' },
     { key: 'done', name: 'Quenched', category: 'completed' },
-    { key: 'cancelled', name: 'Scrapped', category: 'completed' },
+    { key: 'cancelled', name: 'Scrapped', category: 'completed', cancellation: true },
   ],
   transitions: [
     ['backlog', 'open'],
@@ -184,13 +186,20 @@ export const updateProjectBodySchema = z
     name: singleLineText(80).optional(),
     description: multiLineText(2000).optional(),
     archived: z.boolean().optional(),
+    blockersStopCompletion: z.boolean().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, 'Nothing to change.');
 export type UpdateProjectBody = z.infer<typeof updateProjectBodySchema>;
 
+/** Acceptance criteria: at most this many per ticket, each one line of at most this length. */
+export const MAX_CRITERIA = 50;
+export const MAX_CRITERION_LENGTH = 300;
+export const MAX_GOAL_LENGTH = 500;
+
 const ticketFields = {
   title: singleLineText(200),
   description: multiLineText(20_000),
+  goal: multiLineText(MAX_GOAL_LENGTH),
   typeId: z.uuid(),
   priorityId: z.uuid(),
   assigneeId: z.uuid().nullable(),
@@ -203,6 +212,9 @@ const ticketFields = {
 export const createTicketBodySchema = z.strictObject({
   title: ticketFields.title,
   description: ticketFields.description.optional(),
+  goal: ticketFields.goal.optional(),
+  /** Acceptance criteria, in order. */
+  criteria: z.array(singleLineText(MAX_CRITERION_LENGTH)).max(MAX_CRITERIA).optional(),
   typeId: ticketFields.typeId,
   priorityId: ticketFields.priorityId,
   /** Any active status of the project; left out, the ticket starts in the initial status. */
@@ -221,6 +233,7 @@ export const updateTicketBodySchema = z
     version: z.number().int().min(1),
     title: ticketFields.title.optional(),
     description: ticketFields.description.optional(),
+    goal: ticketFields.goal.optional(),
     typeId: ticketFields.typeId.optional(),
     priorityId: ticketFields.priorityId.optional(),
     statusId: z.uuid().optional(),
@@ -261,6 +274,41 @@ export const bulkTicketBodySchema = z.strictObject({
     }),
 });
 export type BulkTicketBody = z.infer<typeof bulkTicketBodySchema>;
+
+export const addCriterionBodySchema = z.strictObject({
+  text: singleLineText(MAX_CRITERION_LENGTH),
+});
+export type AddCriterionBody = z.infer<typeof addCriterionBodySchema>;
+
+export const updateCriterionBodySchema = z
+  .strictObject({
+    text: singleLineText(MAX_CRITERION_LENGTH).optional(),
+    done: z.boolean().optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, 'Nothing to change.');
+export type UpdateCriterionBody = z.infer<typeof updateCriterionBodySchema>;
+
+/** Every criterion of the ticket, each once, in the new order. */
+export const reorderCriteriaBodySchema = z.strictObject({
+  ids: z
+    .array(z.uuid())
+    .max(MAX_CRITERIA)
+    .refine((ids) => new Set(ids).size === ids.length, 'Each criterion may be listed only once.'),
+});
+export type ReorderCriteriaBody = z.infer<typeof reorderCriteriaBodySchema>;
+
+/** The fixed set of reactions, stored by name. */
+export const REACTIONS = ['thumbs_up', 'thumbs_down', 'tada', 'eyes', 'heart'] as const;
+export type Reaction = (typeof REACTIONS)[number];
+export const REACTION_EMOJI: Record<Reaction, string> = {
+  thumbs_up: '👍',
+  thumbs_down: '👎',
+  tada: '🎉',
+  eyes: '👀',
+  heart: '❤️',
+};
+export const reactBodySchema = z.strictObject({ reaction: z.enum(REACTIONS), on: z.boolean() });
+export type ReactBody = z.infer<typeof reactBodySchema>;
 
 export const commentBodySchema = z.strictObject({
   body: z
@@ -326,6 +374,8 @@ export const projectSchema = z.object({
   archived: z.boolean(),
   ticketCount: z.number().int().nonnegative(),
   openCount: z.number().int().nonnegative(),
+  /** While on, a ticket with an open blocker cannot be completed as done (it can be scrapped). */
+  blockersStopCompletion: z.boolean(),
 });
 export type Project = z.infer<typeof projectSchema>;
 
@@ -344,6 +394,98 @@ export const ticketConfigSchema = z.object({
 });
 export type TicketConfig = z.infer<typeof ticketConfigSchema>;
 
+// ---------------------------------------------------------------------------
+// Structure: parents and links
+// ---------------------------------------------------------------------------
+
+/** Epic, ticket, sub-task: top level is depth 1. */
+export const MAX_TICKET_DEPTH = 3;
+
+/** How a link is stored: `blocks` and `duplicates` read source to target; `relates_to` both ways. */
+export const TICKET_LINK_KINDS = ['blocks', 'relates_to', 'duplicates'] as const;
+export type TicketLinkKind = (typeof TICKET_LINK_KINDS)[number];
+
+/** What a person picks when linking from one ticket: either side of each kind. */
+export const LINK_CHOICES = [
+  'blocks',
+  'blocked_by',
+  'relates_to',
+  'duplicates',
+  'duplicated_by',
+] as const;
+export type LinkChoice = (typeof LINK_CHOICES)[number];
+
+/** `outward` is seen from the link's source, `inward` from its target. */
+export type LinkDirection = 'outward' | 'inward';
+
+const LINK_LABELS: Record<TicketLinkKind, Record<LinkDirection, string>> = {
+  blocks: { outward: 'Blocks', inward: 'Blocked by' },
+  duplicates: { outward: 'Duplicates', inward: 'Duplicated by' },
+  relates_to: { outward: 'Relates to', inward: 'Relates to' },
+};
+
+export function linkLabel(kind: TicketLinkKind, direction: LinkDirection): string {
+  return LINK_LABELS[kind][direction];
+}
+
+/** The stored kind for a person's choice, and which side of it the ticket they are on is. */
+export function storedLink(choice: LinkChoice): { kind: TicketLinkKind; direction: LinkDirection } {
+  switch (choice) {
+    case 'blocked_by':
+      return { kind: 'blocks', direction: 'inward' };
+    case 'duplicated_by':
+      return { kind: 'duplicates', direction: 'inward' };
+    default:
+      return { kind: choice, direction: 'outward' };
+  }
+}
+
+/** Enough of another ticket to show it in a breadcrumb, a child list or a link. */
+export const ticketRefSchema = z.object({
+  key: z.string(),
+  title: z.string(),
+  status: statusSchema.pick({ key: true, name: true, category: true }),
+  archived: z.boolean(),
+});
+export type TicketRef = z.infer<typeof ticketRefSchema>;
+
+/** A parent's descendants by status (scrapped ones left out). */
+export const progressSchema = z.object({
+  completed: z.number().int().nonnegative(),
+  inProgress: z.number().int().nonnegative(),
+  jammed: z.number().int().nonnegative(),
+  notStarted: z.number().int().nonnegative(),
+});
+export type Progress = z.infer<typeof progressSchema>;
+
+export const ticketLinkSchema = z.object({
+  id: z.uuid(),
+  kind: z.enum(TICKET_LINK_KINDS),
+  direction: z.enum(['outward', 'inward']),
+  label: z.string(),
+  ticket: ticketRefSchema,
+});
+export type TicketLink = z.infer<typeof ticketLinkSchema>;
+
+export type ChildNode = TicketRef & { children: ChildNode[] };
+export const childNodeSchema: z.ZodType<ChildNode> = ticketRefSchema.extend({
+  get children() {
+    return z.array(childNodeSchema);
+  },
+});
+
+export const setParentBodySchema = z.strictObject({ parentKey: z.string().max(20).nullable() });
+export type SetParentBody = z.infer<typeof setParentBodySchema>;
+
+export const addLinkBodySchema = z.strictObject({
+  choice: z.enum(LINK_CHOICES),
+  otherKey: z.string().max(20),
+});
+export type AddLinkBody = z.infer<typeof addLinkBodySchema>;
+
+export const markDuplicateBodySchema = z.strictObject({ originalKey: z.string().max(20) });
+export type MarkDuplicateBody = z.infer<typeof markDuplicateBodySchema>;
+
 export const ticketSummarySchema = z.object({
   id: z.uuid(),
   key: z.string(),
@@ -359,6 +501,17 @@ export const ticketSummarySchema = z.object({
   version: z.number().int().min(1),
   /** How many comments the ticket has, so a card can show it without loading the timeline. */
   commentCount: z.number().int().nonnegative(),
+  /** The key of the ticket this one is part of. */
+  parentKey: z.string().nullable(),
+  /** For a ticket with descendants, how far along they are; null when it has none. */
+  progress: progressSchema.nullable(),
+  /** Keys of tickets blocking this one that are not completed; empty once this one is completed. */
+  openBlockerKeys: z.array(z.string()),
+  /** Acceptance criteria ticked, and in all. */
+  criteria: z.object({
+    done: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -379,8 +532,44 @@ export const bulkTicketResultSchema = z.object({
 });
 export type BulkTicketResult = z.infer<typeof bulkTicketResultSchema>;
 
+export const criterionSchema = z.object({
+  id: z.uuid(),
+  text: z.string(),
+  done: z.boolean(),
+  doneBy: userRef.nullable(),
+  doneAt: z.string().nullable(),
+});
+export type Criterion = z.infer<typeof criterionSchema>;
+
+export const attachmentSchema = z.object({
+  id: z.uuid(),
+  fileName: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number().int().positive(),
+  uploader: userRef,
+  createdAt: z.string(),
+});
+export type Attachment = z.infer<typeof attachmentSchema>;
+
+/** The answer to an upload: the file just stored, and the ticket's files as they are now. */
+export const uploadResultSchema = z.object({
+  created: attachmentSchema,
+  attachments: z.array(attachmentSchema),
+});
+export type UploadResult = z.infer<typeof uploadResultSchema>;
+
 export const ticketDetailSchema = ticketSummarySchema.extend({
   description: z.string(),
+  goal: z.string(),
+  criteriaItems: z.array(criterionSchema),
+  attachments: z.array(attachmentSchema),
+  /** Tickets whose text refers to this one. */
+  mentionedIn: z.array(ticketRefSchema),
+  /**
+   * The tickets this one's text refers to (description, goal, criteria and comments) that exist in
+   * the workspace, so references can be shown as links. A key not listed stays plain text.
+   */
+  references: z.array(ticketRefSchema),
   reporter: userRef,
   component: componentSchema.nullable(),
   estimateMinutes: z.number().int().nullable(),
@@ -390,6 +579,12 @@ export const ticketDetailSchema = ticketSummarySchema.extend({
   allowedTransitions: z.array(
     statusSchema.pick({ id: true, key: true, name: true, category: true }),
   ),
+  /** From the top-level ticket down to this one's parent. */
+  ancestors: z.array(ticketRefSchema),
+  /** The whole subtree under this ticket, ordered by key at each level. */
+  children: z.array(childNodeSchema),
+  links: z.array(ticketLinkSchema),
+  origin: z.enum(['person', 'scan']),
 });
 export type TicketDetail = z.infer<typeof ticketDetailSchema>;
 
@@ -398,8 +593,24 @@ export const ticketListSchema = z.object({
   total: z.number().int().nonnegative(),
   page: z.number().int(),
   pageSize: z.number().int(),
+  /**
+   * Only in tree mode: the page's rows nested under their parents, in display order. A `context`
+   * row is an ancestor that does not match the filters, shown so its children have somewhere to sit.
+   */
+  rows: z
+    .array(
+      z.object({
+        ticket: ticketSummarySchema,
+        depth: z.number().int().min(1).max(MAX_TICKET_DEPTH),
+        context: z.boolean(),
+      }),
+    )
+    .optional(),
+  /** Only in tree mode: how many top-level rows there are in all, for paging. */
+  rootTotal: z.number().int().nonnegative().optional(),
 });
 export type TicketList = z.infer<typeof ticketListSchema>;
+export type TicketTreeRow = NonNullable<TicketList['rows']>[number];
 
 export const boardSchema = z.object({
   columns: z.array(
@@ -444,5 +655,14 @@ export const commentSchema = z.object({
   body: z.string(),
   createdAt: z.string(),
   editedAt: z.string().nullable(),
+  /** Each reaction used on the comment: how many, whether the viewer is one of them, and who. */
+  reactions: z.array(
+    z.object({
+      reaction: z.enum(REACTIONS),
+      count: z.number().int().positive(),
+      mine: z.boolean(),
+      names: z.array(z.string()),
+    }),
+  ),
 });
 export type Comment = z.infer<typeof commentSchema>;

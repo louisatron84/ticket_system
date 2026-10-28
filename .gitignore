@@ -21,3 +21,6 @@ playwright-report/
 apps/web/AGENTS.md
 .next-e2e/
 .next-preview/
+
+# Attachment files stored by a local API
+apps/api/data/
