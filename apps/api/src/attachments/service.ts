@@ -3,7 +3,11 @@ import { hasControlCharacter, hasPermission, type UploadResult } from '@forge/sh
 import { and, eq, sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { loadAttachments } from '../tickets/content';
-import { archivedTicketError, type TicketContext } from '../tickets/service';
+import {
+  archivedTicketError,
+  refuseIfProjectArchived,
+  type TicketContext,
+} from '../tickets/service';
 import { detectType } from './sniff';
 import type { AttachmentStorage } from './storage';
 
@@ -67,12 +71,14 @@ export async function uploadAttachment(
   // Checked before the bytes are stored, and again under the lock below.
   const ticket = await ticketOf(db, context.organisationId, input.ticketKey);
   if (ticket.archivedAt) throw archivedTicketError();
+  await refuseIfProjectArchived(db, ticket.id);
 
   const key = await storage.put(bytes);
   try {
     return await db.transaction(async (tx) => {
       const locked = await ticketOf(tx, context.organisationId, input.ticketKey, true);
       if (locked.archivedAt) throw archivedTicketError();
+      await refuseIfProjectArchived(tx, locked.id);
       const [{ count }] = (await tx
         .select({ count: sql<number>`count(*)::int` })
         .from(ticketAttachments)
@@ -152,6 +158,7 @@ export async function deleteAttachment(
   const storageKey = await db.transaction(async (tx) => {
     const ticket = await ticketOf(tx, context.organisationId, input.ticketKey, true);
     if (ticket.archivedAt) throw archivedTicketError();
+    await refuseIfProjectArchived(tx, ticket.id);
     const row = await attachmentOf(tx, context.organisationId, ticket.id, input.attachmentId);
     const mayDelete =
       row.uploaderId === context.actorUserId || hasPermission(context.permissions, 'tickets.edit');

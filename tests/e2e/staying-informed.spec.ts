@@ -67,6 +67,9 @@ test('the inbox lists, filters and marks read', async ({ page, request }) => {
   const list = dev.getByRole('region', { name: 'Your notifications' });
   await expect(list).toContainText('Olivia Owner mentioned you in a comment on WEB-2');
   await dev.getByRole('link', { name: /Unread/ }).click();
+  // The filter is a navigation: wait for it to land before acting on the new page.
+  await expect(dev).toHaveURL(/filter=unread/);
+  await hydrated(dev);
   await expect(list.getByRole('listitem')).toHaveCount(1);
   await dev.getByRole('button', { name: 'Mark all read' }).click();
   await expect(dev.getByRole('link', { name: 'Unread', exact: true })).toBeVisible();

@@ -8,6 +8,20 @@ describe('assertAllowedOrigin', () => {
     expect(assertAllowedOrigin(undefined, allowed)).toBe(true);
   });
 
+  it.each([undefined, 'same-origin', 'none'])(
+    'allows no Origin when the browser says the request is from %s',
+    (site) => {
+      expect(assertAllowedOrigin(undefined, allowed, site)).toBe(true);
+    },
+  );
+
+  it.each(['cross-site', 'same-site'])(
+    'refuses no Origin when the browser says the request is %s',
+    (site) => {
+      expect(assertAllowedOrigin(undefined, allowed, site)).toBe(false);
+    },
+  );
+
   it.each(allowed)('allows the configured origin %s', (origin) => {
     expect(assertAllowedOrigin(origin, allowed)).toBe(true);
   });

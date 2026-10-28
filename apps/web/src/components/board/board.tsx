@@ -225,6 +225,8 @@ export function Board({
   }
 
   /** The projects with this status that are open for new tickets. */
+  // Someone who may create but not move tickets can only start one in the first status (the API
+  // refuses any other), so only that column offers them quick create.
   const projectsFor = (statusKey: string) =>
     projects.filter(
       (project) =>
@@ -233,7 +235,9 @@ export function Board({
           (workflow) =>
             workflow.projectKey === project.key &&
             !workflow.archived &&
-            workflow.statuses.some((status) => status.key === statusKey),
+            workflow.statuses.some(
+              (status) => status.key === statusKey && (canMove || status.initial),
+            ),
         ),
     );
 

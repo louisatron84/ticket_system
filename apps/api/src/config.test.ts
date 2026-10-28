@@ -112,6 +112,17 @@ describe('loadConfig: authentication settings', () => {
     expect(config.devAuth).toBe(false);
   });
 
+  it('refuses a plain-HTTP web origin in production, except on this machine', () => {
+    const production = { ...validEnv, NODE_ENV: 'production' };
+    expect(() => loadConfig({ ...production, WEB_ORIGIN: 'http://forge.example.com' })).toThrow(
+      /WEB_ORIGIN must use https/,
+    );
+    expect(
+      loadConfig({ ...production, WEB_ORIGIN: 'https://forge.example.com,http://localhost:3000' })
+        .webOrigins,
+    ).toHaveLength(2);
+  });
+
   it('rejects an unrecognised FORGE_DEV_AUTH value by name', () => {
     expect(() => loadConfig({ ...validEnv, FORGE_DEV_AUTH: 'maybe' })).toThrow(/FORGE_DEV_AUTH/);
   });

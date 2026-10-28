@@ -57,6 +57,7 @@ async function readWorkflows(executor: Executor, actor: QueryActor, projectKeys:
         key: status.key,
         name: status.name,
         category: status.category as StatusCategory,
+        initial: status.isInitial,
       })),
     transitions: transitionRows
       .filter((transition) => transition.projectId === project.id)

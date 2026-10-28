@@ -34,7 +34,14 @@ export async function registerAuth(
   // 1. Writes must come from our own web app (see origin.ts).
   app.addHook('onRequest', async (request) => {
     if (SAFE_METHODS.has(request.method)) return;
-    if (!assertAllowedOrigin(request.headers.origin, deps.config.webOrigins)) {
+    const fetchSite = request.headers['sec-fetch-site'];
+    if (
+      !assertAllowedOrigin(
+        request.headers.origin,
+        deps.config.webOrigins,
+        typeof fetchSite === 'string' ? fetchSite : undefined,
+      )
+    ) {
       throw new AppError('forbidden', 'Cross-origin requests are not allowed.', 403);
     }
   });

@@ -227,6 +227,19 @@ describe('setting a ticket parent', () => {
     expect((await refusal('WEB-2', 'API-1', 409)).message).toBe('API-1 is in an archived project.');
   });
 
+  it('keeps the parent of a ticket in an archived project', async () => {
+    await parentOk('API-2', 'API-1');
+    const response = await ctx.app.inject({
+      method: 'PATCH',
+      url: `/api/v1/orgs/${f.acmeId}/projects/API`,
+      payload: { archived: true },
+      headers: { cookie: await ctx.cookieFor('owner') },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect((await refusal('API-2', null, 409)).message).toBe('API-2 is in an archived project.');
+    expect(await parentIdOf('API-2')).toBe(f.ticket('API-1').id);
+  });
+
   it('lets a child be taken out of an archived parent', async () => {
     await parentOk('WEB-2', 'WEB-1');
     await archive('WEB-1');

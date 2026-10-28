@@ -1,5 +1,6 @@
 import { apiTokens, organisations, type Db, type Executor } from '@forge/db';
 import {
+  hasPermission,
   TOKEN_PATTERN,
   TOKEN_PREFIX,
   type ApiToken,
@@ -10,6 +11,7 @@ import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import { recordAudit } from '../audit';
 import { AppError } from '../errors';
+import { TOKEN_PERMISSIONS } from './guards';
 import { loadMembership } from './membership';
 
 const DAY_MS = 86_400_000;
@@ -47,6 +49,13 @@ export async function createToken(
 ): Promise<{ token: string; id: string }> {
   const membership = await loadMembership(executor, input.organisationId, input.userId);
   if (!membership) throw new AppError('not_found', 'Not found.', 404);
+  // A token is never worth more than its owner's role, so a role that can only read gets a token
+  // that says so, instead of one labelled "read and change" that is refused at every change.
+  const canChange = TOKEN_PERMISSIONS.some(
+    (permission) =>
+      permission !== 'tickets.view' && hasPermission(membership.permissions, permission),
+  );
+  const scope: TokenScope = canChange ? input.scope : 'read';
 
   const token = `${TOKEN_PREFIX}${randomBytes(32).toString('base64url')}`;
   const [row] = await executor
@@ -55,7 +64,7 @@ export async function createToken(
       userId: input.userId,
       organisationId: input.organisationId,
       name: input.name,
-      scope: input.scope,
+      scope,
       tokenHash: hashToken(token),
       prefix: hintOf(token),
       createdVia: input.createdVia,
@@ -71,7 +80,7 @@ export async function createToken(
     // Never the token or its hash.
     after: {
       name: input.name,
-      scope: input.scope,
+      scope,
       expiresInDays: input.expiresInDays,
       via: input.createdVia,
     },

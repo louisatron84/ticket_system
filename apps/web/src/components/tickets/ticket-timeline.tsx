@@ -199,7 +199,7 @@ function CommentEntry({
                   <Pencil size={13} aria-hidden="true" />
                 </button>
               )}
-              {(mine || canModerate) && (
+              {canComment && (mine || canModerate) && (
                 <button
                   type="button"
                   aria-label="Delete comment"

@@ -35,6 +35,26 @@ function cookieFrom(response: { headers: Record<string, unknown> }): string {
   return String(response.headers['set-cookie']).split(';')[0]!;
 }
 
+describe('a connection from another machine', () => {
+  it('is refused on every route, whatever its Host header says', async () => {
+    const remote = { remoteAddress: '192.168.1.50', headers: { host: 'localhost:4000' } };
+    const responses = [
+      await ctx.app.inject({ method: 'GET', url: '/api/dev/identities', ...remote }),
+      await ctx.app.inject({
+        method: 'POST',
+        url: '/api/dev/session',
+        payload: { key: 'owner' },
+        ...remote,
+      }),
+      await ctx.app.inject({ method: 'POST', url: '/api/dev/reset', ...remote }),
+    ];
+    for (const response of responses) {
+      expect(response.statusCode).toBe(403);
+      expect(response.headers['set-cookie']).toBeUndefined();
+    }
+  });
+});
+
 describe('when development sign-in is switched off', () => {
   it('does not exist: every route is a plain 404 and sets no cookie', async () => {
     const off = await buildApp({

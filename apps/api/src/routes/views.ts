@@ -10,7 +10,7 @@ import { and, asc, eq, or, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { recordAudit } from '../audit';
-import { orgAccess } from '../auth/guards';
+import { orgAccess, refuseTokens } from '../auth/guards';
 import { isUniqueViolation, pgConstraint } from '../db-errors';
 import { AppError } from '../errors';
 import { parseBody } from '../validation';
@@ -82,7 +82,7 @@ export function registerViewRoutes(app: FastifyInstance, deps: { db: Db }): void
 
   app.post(
     '/api/v1/orgs/:orgId/views',
-    { preHandler: orgAccess(db, 'tickets.view') },
+    { preHandler: [refuseTokens, orgAccess(db, 'tickets.view')] },
     async (request, reply): Promise<SavedView> => {
       const body = parseBody(saveViewBodySchema, request.body);
       const org = request.org!;
@@ -130,7 +130,7 @@ export function registerViewRoutes(app: FastifyInstance, deps: { db: Db }): void
 
   app.patch(
     '/api/v1/orgs/:orgId/views/:viewId',
-    { preHandler: orgAccess(db, 'tickets.view') },
+    { preHandler: [refuseTokens, orgAccess(db, 'tickets.view')] },
     async (request): Promise<SavedView> => {
       const viewId = viewIdParam(request);
       const body = parseBody(updateViewBodySchema, request.body);
@@ -189,7 +189,7 @@ export function registerViewRoutes(app: FastifyInstance, deps: { db: Db }): void
 
   app.delete(
     '/api/v1/orgs/:orgId/views/:viewId',
-    { preHandler: orgAccess(db, 'tickets.view') },
+    { preHandler: [refuseTokens, orgAccess(db, 'tickets.view')] },
     async (request, reply): Promise<void> => {
       const viewId = viewIdParam(request);
       const org = request.org!;

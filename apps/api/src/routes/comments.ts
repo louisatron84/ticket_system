@@ -69,11 +69,11 @@ export function registerCommentRoutes(app: FastifyInstance, deps: { db: Db }): v
     },
   );
 
-  // Anyone who can see the ticket gets as far as the rule: the author, or a holder of
-  // tickets.edit, may delete. Whether this person qualifies is decided against the comment itself.
+  // Only people who may still comment get as far as the rule: the author, or a holder of
+  // tickets.edit, may delete. Someone whose role no longer allows commenting keeps nothing.
   app.delete(
     '/api/v1/orgs/:orgId/tickets/:ticketKey/comments/:commentId',
-    { preHandler: orgAccess(db, 'tickets.view') },
+    { preHandler: orgAccess(db, 'tickets.comment') },
     async (request, reply): Promise<void> => {
       const ticketKey = ticketKeyParam(request);
       const commentId = commentIdParam(request);

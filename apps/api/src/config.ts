@@ -107,6 +107,21 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     );
   }
 
+  // In production the session cookie is Secure, so a plain-HTTP site could never sign anyone in;
+  // worse, it would send everything else in clear text. Only this machine may be reached by HTTP.
+  if (values.NODE_ENV === 'production') {
+    const insecure = values.WEB_ORIGIN.filter(
+      (origin) =>
+        origin.startsWith('http://') &&
+        !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin),
+    );
+    if (insecure.length > 0) {
+      throw new ConfigError(
+        `Invalid configuration: WEB_ORIGIN must use https:// in production (${insecure.join(', ')})`,
+      );
+    }
+  }
+
   return {
     nodeEnv: values.NODE_ENV,
     host: values.API_HOST,

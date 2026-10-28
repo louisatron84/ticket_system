@@ -11,6 +11,8 @@ export type CliConfig = {
   workspace: { id: string; slug: string; name: string };
   scope: 'read' | 'write';
   expiresAt: string;
+  /** Where the web app is, for links; missing in configs saved before it was remembered. */
+  webUrl?: string;
 };
 
 export function configDir(env: NodeJS.ProcessEnv = process.env): string {

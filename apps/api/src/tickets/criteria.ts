@@ -8,7 +8,7 @@ import {
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { clearMentions, loadCriteria, syncMentions } from './content';
-import { archivedTicketError, type TicketContext } from './service';
+import { archivedTicketError, refuseIfProjectArchived, type TicketContext } from './service';
 
 // Acceptance criteria. They are rows of their own, outside the ticket's version, so ticking one
 // while someone edits the description never makes either a conflict. Each write locks the ticket
@@ -24,6 +24,7 @@ async function lockTicket(tx: Executor, organisationId: string, ticketKey: strin
     .for('update');
   if (!ticket) throw notFound();
   if (ticket.archivedAt) throw archivedTicketError();
+  await refuseIfProjectArchived(tx, ticket.id);
   return ticket.id;
 }
 

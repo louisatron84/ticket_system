@@ -620,7 +620,9 @@ export const workflowSchema = z.object({
   projectId: z.uuid(),
   projectKey: z.string(),
   archived: z.boolean(),
-  statuses: z.array(statusSchema.pick({ id: true, key: true, name: true, category: true })),
+  statuses: z.array(
+    statusSchema.pick({ id: true, key: true, name: true, category: true, initial: true }),
+  ),
   transitions: z.array(z.object({ fromStatusId: z.uuid(), toStatusId: z.uuid() })),
 });
 export type Workflow = z.infer<typeof workflowSchema>;

@@ -20,6 +20,8 @@ import { createToken, hashToken } from './tokens';
 // the command line collects it, so it is never stored anywhere, not even briefly.
 
 export const LOGIN_TTL_SECONDS = 600;
+/** Logins waiting for approval at once, across everyone. */
+export const MAX_WAITING_LOGINS = 500;
 /** How often the command line may ask whether it has been approved. */
 export const POLL_INTERVAL_SECONDS = 3;
 
@@ -36,6 +38,23 @@ export async function startLogin(
   db: Db,
   input: { machine: string; ip: string; verificationBase: string },
 ) {
+  // X-Forwarded-For is believed from the loopback proxy, so a caller on this machine can claim a
+  // fresh address for each start. Counting by socket would not help: behind the web proxy every
+  // caller shares one socket peer, so one noisy caller would lock everyone out. Instead, however
+  // the per-address limit is got round, waiting logins never pile up without end.
+  const [{ waiting }] = (await db
+    .select({ waiting: sql<number>`count(*)::int` })
+    .from(cliLogins)
+    .where(and(eq(cliLogins.status, 'pending'), gt(cliLogins.expiresAt, sql`now()`)))) as [
+    { waiting: number },
+  ];
+  if (waiting >= MAX_WAITING_LOGINS) {
+    throw new AppError(
+      'rate_limited',
+      'Too many sign-ins are waiting. Try again in a few minutes.',
+      429,
+    );
+  }
   const deviceCode = randomBytes(32).toString('base64url');
   let code = userCode();
   // A user code is unique for all time; on the rare repeat, draw another.
@@ -63,8 +82,24 @@ export async function startLogin(
   };
 }
 
-/** A pending, unexpired login by its user code, for the approval page. */
-export async function lookupLogin(db: Db, rawCode: string): Promise<CliLoginRequest> {
+/** Two addresses are the same caller; every loopback form counts as this one machine. */
+function sameAddress(a: string, b: string): boolean {
+  const plain = (value: string) => (value.startsWith('::ffff:') ? value.slice(7) : value);
+  const local = (value: string) => value === '::1' || /^127\./.test(value);
+  const [x, y] = [plain(a), plain(b)];
+  return x === y || (local(x) && local(y));
+}
+
+/**
+ * A pending, unexpired login by its user code, for the approval page. `viewerIp` is the address
+ * of the person looking: a login started somewhere else is the shape of a phishing attempt (an
+ * attacker runs `forge login` and sends the link), so the page warns and asks again.
+ */
+export async function lookupLogin(
+  db: Db,
+  rawCode: string,
+  viewerIp: string,
+): Promise<CliLoginRequest> {
   const code = normaliseUserCode(rawCode);
   if (!code) throw unknownCode();
   const [row] = await db
@@ -82,6 +117,7 @@ export async function lookupLogin(db: Db, rawCode: string): Promise<CliLoginRequ
     userCode: code,
     machine: row.machine,
     requestIp: row.requestIp,
+    fromYourAddress: sameAddress(row.requestIp, viewerIp),
     requestedAt: row.createdAt.toISOString(),
     expiresAt: row.expiresAt.toISOString(),
   };
@@ -97,11 +133,23 @@ export async function decideLogin(
         userId: string;
         organisationId: string;
         scope: TokenScope;
+        differentAddressConfirmed?: boolean | undefined;
+        viewerIp: string;
       }
     | { decision: 'deny'; userCode: string; userId: string },
 ): Promise<void> {
   const code = normaliseUserCode(input.userCode);
   if (!code) throw unknownCode();
+  if (input.decision === 'allow' && !input.differentAddressConfirmed) {
+    const pending = await lookupLogin(db, code, input.viewerIp);
+    if (!pending.fromYourAddress) {
+      throw new AppError(
+        'conflict',
+        'This sign-in was started from another address than yours. Confirm that you started it yourself, or deny it.',
+        409,
+      );
+    }
+  }
   if (input.decision === 'allow') {
     const membership = await loadMembership(db, input.organisationId, input.userId);
     if (!membership) throw new AppError('not_found', 'Not found.', 404);

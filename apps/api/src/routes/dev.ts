@@ -4,7 +4,7 @@ import { asc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance, preHandlerAsyncHookHandler } from 'fastify';
 import { recordAudit } from '../audit';
 import { sessionCookieOptions } from '../auth/cookies';
-import { isLoopbackHost } from '../auth/host';
+import { isLoopbackAddress, isLoopbackHost } from '../auth/host';
 import { SESSION_COOKIE, createSession, revokeSession } from '../auth/sessions';
 import type { AppConfig } from '../config';
 import { AppError } from '../errors';
@@ -28,8 +28,13 @@ const PROTECTED_DATABASE = 'forge';
 export function registerDevRoutes(app: FastifyInstance, deps: { db: Db; config: AppConfig }): void {
   const { db, config } = deps;
 
-  // Refuse requests that reached us through a non-local DNS name, including via the web proxy.
+  // Refuse requests that reached us through a non-local DNS name, including via the web proxy,
+  // and any connection from another machine, whatever its headers claim (an API bound to a
+  // network address would otherwise hand out sessions to anyone who sends `Host: localhost`).
   const localOnly: preHandlerAsyncHookHandler = async (request) => {
+    if (!isLoopbackAddress(request.socket.remoteAddress)) {
+      throw new AppError('forbidden', 'The development switcher is only available locally.', 403);
+    }
     const forwarded = request.headers['x-forwarded-host'];
     const forwardedOk =
       forwarded === undefined ||

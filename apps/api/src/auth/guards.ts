@@ -34,6 +34,16 @@ export const TOKEN_PERMISSIONS: readonly Permission[] = [
   'tickets.comment',
 ];
 
+/**
+ * Route guard placed before `orgAccess` on workspace routes that tokens must not use even though
+ * the permission they need is ticket work: saved views are settings of the web app.
+ */
+export const refuseTokens: preHandlerAsyncHookHandler = async (request) => {
+  if (request.token) {
+    throw new AppError('forbidden', 'Command-line tokens cannot do that. Use the web app.', 403);
+  }
+};
+
 /** Route guard: the request must carry a valid session. */
 export const requireUser: preHandlerAsyncHookHandler = async (request) => {
   if (request.token) {

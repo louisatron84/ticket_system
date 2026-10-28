@@ -75,6 +75,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header(REQUEST_ID_HEADER, request.id);
+    // The API only ever answers with data, never a page: nothing it sends may run, be framed or
+    // be second-guessed as another type. A route that sends a file sets its own stricter policy.
+    reply.header('x-content-type-options', 'nosniff');
+    reply.header('x-frame-options', 'DENY');
+    reply.header('content-security-policy', "default-src 'none'; frame-ancestors 'none'");
+    reply.header('referrer-policy', 'no-referrer');
+    if (config.nodeEnv === 'production') {
+      reply.header('strict-transport-security', 'max-age=63072000; includeSubDomains');
+    }
   });
 
   registerErrorHandling(app);

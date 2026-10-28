@@ -16,9 +16,9 @@ All three databases must be UTF-8 (see [setup](setup.md#the-database-must-be-utf
 store emoji and Arabic text on purpose, and a database in another encoding fails them (and
 `db:migrate` refuses it before that).
 
-After P5 (watching, live notifications, My work and triage with four-eyes approval) the suites held
-roughly: shared 340 tests, database 112, API 948 (including the live event stream and the `forge`
-binary), web logic 433, CLI 7, and the browser suite. These numbers drift; the commands print the
+After P5 and the second hardening pass (the outside red-team findings; `apps/api/src/routes/hardening.test.ts`
+keeps those holes shut) the suites held roughly: shared 356 tests, database 112, API 974 (including
+the live event stream and the `forge` binary), web logic 433, CLI 7, and the browser suite 199. These numbers drift; the commands print the
 live ones.
 
 GitHub Actions (`.github/workflows/check.yml`) runs `npm run check` and then the browser tests on
