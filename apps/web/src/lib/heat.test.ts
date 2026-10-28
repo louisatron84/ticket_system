@@ -86,3 +86,15 @@ describe('heat colours', () => {
     },
   );
 });
+
+describe('text colours', () => {
+  // Small text needs 4.5:1 (WCAG AA). Muted text is used for most of the small print.
+  it.each(
+    ['bg', 'panel', 'raised'].flatMap((name) => [
+      ['text', name] as const,
+      ['muted', name] as const,
+    ]),
+  )('keeps --%s readable on --%s (at least 4.5:1)', (token, name) => {
+    expect(contrast(surface(token), surface(name))).toBeGreaterThanOrEqual(4.5);
+  });
+});

@@ -2,7 +2,7 @@
 
 import type { DevIdentity } from '@forge/shared';
 import { Check, FlaskConical } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ApiRequestError, apiFetch } from '@/lib/api-client';
@@ -26,6 +26,19 @@ export function DevSwitcher({
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [resetting, setResetting] = useState(false);
+  // Reset wipes the whole database, so it exists only when the API was started with it switched on.
+  const [canReset, setCanReset] = useState(false);
+  useEffect(() => {
+    let current = true;
+    fetch('/api/dev/reset', { credentials: 'same-origin' })
+      .then((response) => {
+        if (current) setCanReset(response.status === 204);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, []);
 
   async function switchTo(key: string) {
     setPendingKey(key);
@@ -89,13 +102,15 @@ export function DevSwitcher({
           );
         })}
       </ul>
-      <button
-        type="button"
-        onClick={() => setConfirmingReset(true)}
-        className={`${buttonClass('secondary')} mt-3 w-full`}
-      >
-        Reset demo data
-      </button>
+      {canReset && (
+        <button
+          type="button"
+          onClick={() => setConfirmingReset(true)}
+          className={`${buttonClass('secondary')} mt-3 w-full`}
+        >
+          Reset demo data
+        </button>
+      )}
 
       <ConfirmDialog
         open={confirmingReset}

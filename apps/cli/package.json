@@ -1,7 +1,7 @@
 {
   "name": "@forge/cli",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "The forge command: sign in and move tickets from a terminal",
   "bin": {

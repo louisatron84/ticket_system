@@ -175,6 +175,13 @@ See [development accounts](development-accounts.md#why-it-cannot-reach-productio
 cannot start in production, the routes do not exist unless enabled, it accepts only seeded
 identity keys, and it refuses foreign `Host` / `Origin` values.
 
+It is open to any program on the same machine: that is what makes it a development tool, and why
+real sign-in must replace it before Forge is reachable by anyone else. The most destructive part,
+**Reset demo data** (wipe every table and reseed, signing everyone out), is a separate switch,
+`FORGE_DEV_RESET`, off by default; its route does not exist without it, the button only appears
+with it, and it always refuses the main `forge` database. `npm run db:reseed` remains the
+deliberate way to start again.
+
 ## Audit trail
 
 Written in the same transaction as the change, with actor, action, target, before and after,

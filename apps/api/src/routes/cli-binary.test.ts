@@ -117,6 +117,36 @@ describe('the forge command', () => {
     expect(quench.err).toMatch(/WEB-7 can't be quenched while API-3 is open\.|isn't allowed/);
     const missing = await forge(['warm', 'WEB-999']);
     expect(missing.code).toBe(1);
+    expect(missing.err).toBe("WEB-999 doesn't exist in Acme Robotics.\n");
+    // A refused move says where the ticket can go instead.
+    const cold = await forge(['cold', 'WEB-12']);
+    expect(cold.code).toBe(1);
+    expect(cold.err).toContain('From Quenched it can go to');
+  });
+
+  it('lists and shows tickets, as text or JSON', async () => {
+    await forge(['login', '--token', '--server', server], {
+      input: `${await tokenFor('developer')}\n`,
+    });
+    const mine = await forge(['cat', '--mine', '--status', 'hammer']);
+    expect(mine.code, mine.err).toBe(0);
+    expect(mine.out).toMatch(/^KEY\s+STATUS\s+HEAT\s+WHO\s+TITLE/);
+    expect(mine.out).toContain('WEB-1 ');
+    expect(mine.out).toContain('In the Forge');
+
+    const json = await forge(['catalogue', '--project', 'api', '--json', '--limit', '3']);
+    const list = JSON.parse(json.out) as { items: { key: string }[]; total: number };
+    expect(list.items).toHaveLength(3);
+    expect(list.items.every((item) => item.key.startsWith('API-'))).toBe(true);
+
+    const shown = await forge(['inspect', 'web-1']);
+    expect(shown.code, shown.err).toBe(0);
+    expect(shown.out).toContain('Acceptance criteria (1 of 3 met)');
+    expect(shown.out).toContain('[x] Signing in after expiry returns to the page you were on');
+    expect(shown.out).toContain('Next moves');
+    expect(shown.out).toContain(`/w/acme/tickets/WEB-1`);
+    const asJson = JSON.parse((await forge(['inspect', 'WEB-1', '--json'])).out) as { key: string };
+    expect(asJson.key).toBe('WEB-1');
   });
 
   it('a read-only token reads but cannot move', async () => {

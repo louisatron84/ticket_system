@@ -50,7 +50,9 @@ function isPortInUse(port) {
 async function start() {
   if (await isPortInUse(PORT)) {
     fail(
-      `Port ${PORT} is already in use. Is the dev database already running (try \`npm run db:stop\`) or Docker Compose?`,
+      `Port ${PORT} is already in use. If this folder's database is already running, just use it. ` +
+        'Otherwise something else holds the port (another copy of Forge, or Docker Compose). ' +
+        "`npm run db:stop` stops only the database in this folder's .data directory.",
     );
   }
 

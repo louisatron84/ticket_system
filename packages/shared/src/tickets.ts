@@ -666,3 +666,16 @@ export const commentSchema = z.object({
   ),
 });
 export type Comment = z.infer<typeof commentSchema>;
+
+/**
+ * What a refused move adds, so people learn the workflow from the refusal:
+ * "From Tempering it can go to In the Forge, Quenched or Scrapped."
+ */
+export function allowedMovesSentence(fromName: string, toNames: readonly string[]): string {
+  if (toNames.length === 0) return `From ${fromName} it cannot move anywhere.`;
+  const list =
+    toNames.length === 1
+      ? toNames[0]
+      : `${toNames.slice(0, -1).join(', ')} or ${toNames[toNames.length - 1]}`;
+  return `From ${fromName} it can go to ${list}.`;
+}

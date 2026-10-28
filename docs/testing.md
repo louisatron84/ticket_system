@@ -21,6 +21,9 @@ command) the suites held roughly: shared 339 tests, database 112, API 916 (inclu
 binary run against a live API in `cli-binary.test.ts`), web logic 424, CLI 5, browser 193. These
 numbers drift; the commands print the live ones.
 
+GitHub Actions (`.github/workflows/check.yml`) runs `npm run check` and then the browser tests on
+every push and pull request, starting the embedded PostgreSQL the same way `npm run db:start` does.
+
 ## What is covered
 
 - **Unit tests** are pure and need nothing running: config validation, request-id sanitising, error

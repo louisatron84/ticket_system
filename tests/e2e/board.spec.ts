@@ -52,6 +52,10 @@ test.describe('the board', () => {
     }
     // Scrapped work is hidden until a person chooses to see it (see the Display menu tests).
     await expect(column(page, 'Scrapped')).toHaveCount(0);
+    // ...and the board says so, so its totals never seem to be missing tickets.
+    await expect(page.getByTestId('hidden-columns')).toHaveText(
+      'Hidden: Scrapped (1 ticket). Show it from Display.',
+    );
     await expect(card(page, 'WEB-3')).toContainText('Checkout page is slow on mobile');
   });
 

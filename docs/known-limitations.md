@@ -168,7 +168,8 @@ not listed as working in the README, assume it does not exist yet.
   There is no production database setup, backup or recovery procedure yet (Stage 7).
 - **No production build for the API.** Internal packages are consumed as TypeScript source and the
   API runs through `tsx`. The web app does have a working `next build`.
-- **No CI.** Checks run locally with `npm run check` and `npm run test:e2e`.
+- **CI** (`.github/workflows/check.yml`) runs `npm run check` and the browser tests on Linux with
+  Chromium on every push and pull request; Edge is covered only locally on Windows.
 - **Mobile navigation drawer** does not trap focus or restore it on close. Escape and the backdrop
   close it, and it is keyboard operable, but it is not a full modal dialog. The account menu and
   workspace menu close on Escape and outside clicks but are disclosure panels, not full ARIA menus.

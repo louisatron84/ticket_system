@@ -22,7 +22,7 @@ screens for workflows and fields), GitHub, code review and workflow automation. 
 
 ## Quick start
 
-Requires Node.js 22.9 or newer. No Docker needed.
+Requires Node.js 22.12 or newer. No Docker needed.
 
 ```bash
 npm install
@@ -33,7 +33,8 @@ npm run db:seed               # seven test accounts, two demo workspaces, demo t
 npm run dev                   # API on :4000, web on :3000
 ```
 
-Open <http://localhost:3000> and pick an account. If `db:migrate` says the database is not UTF-8,
+Open <http://localhost:3000> and pick an account. A fuller step-by-step guide, from a fresh
+machine: [docs/install.md](docs/install.md). If `db:migrate` says the database is not UTF-8,
 your local database was created before Stage 2 on Windows; the fix is in
 [docs/setup.md](docs/setup.md#the-database-must-be-utf-8). Details, the Docker alternative and
 troubleshooting: [docs/setup.md](docs/setup.md). Who each test account is:

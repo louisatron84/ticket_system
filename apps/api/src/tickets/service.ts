@@ -16,6 +16,7 @@ import {
   type Executor,
 } from '@forge/db';
 import {
+  allowedMovesSentence,
   formatEstimate,
   hasPermission,
   normalizeProjectKey,
@@ -344,7 +345,11 @@ export async function updateTicket(
           if (!allowed) {
             issues.push({
               path: 'statusId',
-              message: `That move isn't allowed from ${current.status.name}.`,
+              // Says where it can go, so the refusal teaches the workflow.
+              message: `That move isn't allowed from ${current.status.name}. ${allowedMovesSentence(
+                current.status.name,
+                current.allowedTransitions.map((status) => status.name),
+              )}`,
             });
           } else {
             const refusal = await completionRefusal(tx, {

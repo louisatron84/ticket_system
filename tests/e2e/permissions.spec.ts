@@ -87,9 +87,9 @@ test.describe('what each role sees', () => {
     await signInAs(page, 'readonly');
     const list = page.getByRole('region', { name: 'What your role allows here' });
     await expect(list.getByRole('listitem')).toHaveText([
-      'members.view',
-      'tickets.view',
-      'workspace.view',
+      'See the workspace',
+      'See who the members are',
+      'See tickets and boards',
     ]);
   });
 });
@@ -184,7 +184,7 @@ test.describe('changing a role is visible to the person it happens to', () => {
     await switchTo(page, 'developer');
     await expect(page.getByText('Your role: Reviewer')).toBeVisible();
     const permissions = page.getByRole('region', { name: 'What your role allows here' });
-    await expect(permissions).toContainText('reviews.approve');
-    await expect(permissions).not.toContainText('tickets.edit');
+    await expect(permissions).toContainText('Approve changes');
+    await expect(permissions).not.toContainText('Change, move and archive tickets');
   });
 });

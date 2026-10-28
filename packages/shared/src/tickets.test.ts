@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_PRIORITIES,
+  allowedMovesSentence,
   DEFAULT_STATUS_TEMPLATE,
   DEFAULT_TICKET_TYPES,
   LABEL_COLORS,
@@ -511,5 +512,15 @@ describe('linkLabel', () => {
     expect(storedLink('relates_to')).toEqual({ kind: 'relates_to', direction: 'outward' });
     expect(storedLink('duplicates')).toEqual({ kind: 'duplicates', direction: 'outward' });
     expect(storedLink('duplicated_by')).toEqual({ kind: 'duplicates', direction: 'inward' });
+  });
+});
+
+describe('allowedMovesSentence', () => {
+  it('lists where a ticket can go, in plain words', () => {
+    expect(allowedMovesSentence('Tempering', ['In the Forge', 'Quenched', 'Scrapped'])).toBe(
+      'From Tempering it can go to In the Forge, Quenched or Scrapped.',
+    );
+    expect(allowedMovesSentence('Warming', ['Jammed'])).toBe('From Warming it can go to Jammed.');
+    expect(allowedMovesSentence('Quenched', [])).toBe('From Quenched it cannot move anywhere.');
   });
 });

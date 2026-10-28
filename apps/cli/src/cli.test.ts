@@ -73,3 +73,28 @@ describe('usage', () => {
     expect((await run('warm', 'WEB-1', 'WEB-2')).code).toBe(2);
   });
 });
+
+describe('strict arguments', () => {
+  const run = async (...args: string[]) => {
+    const err: string[] = [];
+    const out: string[] = [];
+    const code = await main(args, { out: (l) => out.push(l), err: (l) => err.push(l) });
+    return { code, out: out.join('\n'), err: err.join('\n') };
+  };
+
+  it('refuses options a command does not know, and options missing a value', async () => {
+    expect(await run('login', '--tokn')).toMatchObject({
+      code: 2,
+      err: 'forge login does not take --tokn. Run `forge help`.',
+    });
+    expect((await run('login', '--server')).code).toBe(2);
+    expect((await run('hammer', 'WEB-1', '--force')).code).toBe(2);
+    expect((await run('cat', '--limit', '0')).code).toBe(2);
+    expect((await run('cat', 'WEB')).code).toBe(2);
+    expect((await run('inspect')).code).toBe(2);
+  });
+
+  it('prints its version', async () => {
+    expect((await run('--version')).out).toMatch(/^forge \d+\.\d+\.\d+$/);
+  });
+});

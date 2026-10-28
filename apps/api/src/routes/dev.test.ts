@@ -9,7 +9,7 @@ import { testConfig } from '../test-utils';
 let ctx: Integration;
 
 beforeAll(async () => {
-  ctx = await startIntegration({ devAuth: true });
+  ctx = await startIntegration({ devAuth: true, devReset: true });
 });
 
 beforeEach(async () => {
@@ -166,6 +166,21 @@ describe('POST /api/dev/session', () => {
 });
 
 describe('POST /api/dev/reset', () => {
+  it('does not exist unless FORGE_DEV_RESET is on, even with development sign-in', async () => {
+    const noReset = await buildApp({
+      config: testConfig({ devAuth: true, devReset: false }),
+      readinessChecks: [],
+      db: ctx.db,
+    });
+    expect((await noReset.inject({ method: 'POST', url: '/api/dev/reset' })).statusCode).toBe(404);
+    expect((await noReset.inject({ method: 'GET', url: '/api/dev/reset' })).statusCode).toBe(404);
+    expect((await noReset.inject({ method: 'GET', url: '/api/dev/identities' })).statusCode).toBe(
+      200,
+    );
+    await noReset.close();
+    expect((await ctx.app.inject({ method: 'GET', url: '/api/dev/reset' })).statusCode).toBe(204);
+  });
+
   it('wipes everything, reseeds, and ends the current session', async () => {
     const cookie = await ctx.cookieFor('owner');
     await ctx.db.insert(users).values({ email: 'stray@example.test', displayName: 'Stray' });

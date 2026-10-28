@@ -12,6 +12,8 @@ export type AppConfig = {
   version: string;
   /** Development-only sign-in and account switcher. Can never be on in production. */
   devAuth: boolean;
+  /** Lets the development switcher wipe and reseed the database. Off unless asked for. */
+  devReset: boolean;
   /** Origins allowed to make state-changing requests with a session cookie. */
   webOrigins: string[];
   sessionTtlHours: number;
@@ -57,6 +59,10 @@ const envSchema = z.object({
     .enum(['1', 'true', '0', 'false'])
     .default('0')
     .transform((value) => value === '1' || value === 'true'),
+  FORGE_DEV_RESET: z
+    .enum(['1', 'true', '0', 'false'])
+    .default('0')
+    .transform((value) => value === '1' || value === 'true'),
   WEB_ORIGIN: z
     .string()
     .default('http://localhost:3000,http://127.0.0.1:3000')
@@ -75,6 +81,7 @@ const PROBLEMS: Record<string, string> = {
   DATABASE_URL: 'is required and must be a postgres:// or postgresql:// URL',
   APP_VERSION: 'must be a string',
   FORGE_DEV_AUTH: 'must be 1, true, 0 or false',
+  FORGE_DEV_RESET: 'must be 1, true, 0 or false',
   WEB_ORIGIN: 'must be a comma-separated list of http(s) origins without paths',
   SESSION_TTL_HOURS: 'must be an integer between 1 and 720',
   ATTACHMENTS_DIR: 'must be a folder path',
@@ -108,6 +115,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     logLevel: values.LOG_LEVEL ?? (values.NODE_ENV === 'test' ? 'silent' : 'info'),
     version: values.APP_VERSION ?? pkg.version,
     devAuth: values.FORGE_DEV_AUTH,
+    devReset: values.FORGE_DEV_AUTH && values.FORGE_DEV_RESET,
     webOrigins: values.WEB_ORIGIN,
     sessionTtlHours: values.SESSION_TTL_HOURS,
     attachmentsDir: values.ATTACHMENTS_DIR,

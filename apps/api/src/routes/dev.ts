@@ -1,6 +1,6 @@
 import { developmentFixtures, reseedDevelopmentData, users, type Db } from '@forge/db';
 import { devSessionBodySchema, type DevIdentity } from '@forge/shared';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance, preHandlerAsyncHookHandler } from 'fastify';
 import { recordAudit } from '../audit';
 import { sessionCookieOptions } from '../auth/cookies';
@@ -22,6 +22,9 @@ const identityColumns = {
  * Development-only account switcher. Registered only when FORGE_DEV_AUTH is on (and never in
  * production). Sign-in accepts a seeded identity *key*: there is no way to name an arbitrary user.
  */
+/** The database people keep their own work in. The reset button never touches it. */
+const PROTECTED_DATABASE = 'forge';
+
 export function registerDevRoutes(app: FastifyInstance, deps: { db: Db; config: AppConfig }): void {
   const { db, config } = deps;
 
@@ -81,7 +84,24 @@ export function registerDevRoutes(app: FastifyInstance, deps: { db: Db; config: 
     return { identity: publicIdentity satisfies DevIdentity };
   });
 
+  // Wiping every table signs everyone out and deletes all data, so it is a switch of its own,
+  // off unless FORGE_DEV_RESET is set. The command `npm run db:reseed` still works either way.
+  if (!config.devReset) return;
+
+  app.get('/api/dev/reset', { preHandler: localOnly }, async (_request, reply) =>
+    reply.status(204).send(),
+  );
+
   app.post('/api/dev/reset', { preHandler: localOnly }, async (_request, reply) => {
+    // The main development database is where people keep their own work: never from a button.
+    const { rows } = await db.execute<{ name: string }>(sql`select current_database() as name`);
+    if (rows[0]?.name === PROTECTED_DATABASE) {
+      throw new AppError(
+        'forbidden',
+        'Reset is refused on the main "forge" database. Run npm run db:reseed if you really mean it.',
+        403,
+      );
+    }
     await reseedDevelopmentData(db);
     reply.clearCookie(SESSION_COOKIE, { path: '/' });
     return reply.status(204).send();

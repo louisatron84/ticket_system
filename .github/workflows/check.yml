@@ -1,0 +1,71 @@
+# Runs the same checks a developer runs locally, on every push and pull request.
+name: Check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck, lint, format and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: cp .env.example .env
+      - name: Start the embedded PostgreSQL
+        run: |
+          npm run db:start > db.log 2>&1 &
+          for i in $(seq 1 60); do
+            (exec 3<>/dev/tcp/127.0.0.1/54329) 2>/dev/null && exit 0
+            sleep 2
+          done
+          cat db.log
+          exit 1
+      - run: npm run check
+
+  browser:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: cp .env.example .env
+      - run: npx playwright install --with-deps chromium
+      - name: Start the embedded PostgreSQL
+        run: |
+          npm run db:start > db.log 2>&1 &
+          for i in $(seq 1 60); do
+            (exec 3<>/dev/tcp/127.0.0.1/54329) 2>/dev/null && exit 0
+            sleep 2
+          done
+          cat db.log
+          exit 1
+      - run: npm run test:e2e
+      - name: Keep the failure report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7

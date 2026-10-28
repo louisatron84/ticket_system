@@ -2,6 +2,7 @@ import { hasPermission, normalizeProjectKey, projectDetailSchema } from '@forge/
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { BlockerSetting } from '@/components/projects/blocker-setting';
+import { NoAccess } from '@/components/workspace/no-access';
 import { getViewer, serverGet } from '@/lib/server/session';
 import { workspaceSlugFromPath } from '@/lib/workspaces';
 
@@ -20,8 +21,18 @@ export default async function ProjectSettingsPage({
   const membership = viewer.memberships.find((m) => m.organisation.slug === slug);
   const key = normalizeProjectKey(rawKey);
   if (!membership || !key) notFound();
-  // Settings are for people who may manage projects; to anyone else the page does not exist.
-  if (!hasPermission(membership.permissions, 'projects.manage')) notFound();
+  // Settings are for people who may manage projects. A member without that is told so plainly;
+  // they can already see the project, so saying the page exists reveals nothing.
+  if (!hasPermission(membership.permissions, 'projects.manage')) {
+    return (
+      <NoAccess
+        what="this project's settings"
+        workspaceName={membership.organisation.name}
+        roleName={membership.role.name}
+        level={2}
+      />
+    );
+  }
 
   const project = await serverGet(
     `/api/v1/orgs/${membership.organisation.id}/projects/${key}`,
