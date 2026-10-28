@@ -10,6 +10,7 @@ export const IDENTITIES = {
   reviewer: 'Riley Reviewer',
   readonly: 'Remy Read-only',
   restricted: 'Casey Restricted',
+  reporter: 'Rowan Reporter',
   'other-owner': 'Nora Northwind',
 } as const;
 

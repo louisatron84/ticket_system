@@ -67,7 +67,7 @@ describe('when development sign-in is switched off', () => {
 });
 
 describe('GET /api/dev/identities', () => {
-  it('lists the seven seeded identities in order, without any ids', async () => {
+  it('lists the seeded identities in order, without any ids', async () => {
     const response = await listIdentities();
     expect(response.statusCode).toBe(200);
     const identities = devIdentitySchema.array().parse(response.json());
@@ -194,7 +194,7 @@ describe('POST /api/dev/reset', () => {
     );
     expect((await me(cookie)).statusCode).toBe(401);
     expect(await ctx.db.select().from(sessions).where(isNull(sessions.revokedAt))).toEqual([]);
-    expect((await listIdentities()).json()).toHaveLength(7);
+    expect((await listIdentities()).json()).toHaveLength(8);
   });
 });
 

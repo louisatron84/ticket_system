@@ -163,7 +163,7 @@ describe('tenant data', () => {
     const cookie = await ctx.cookieFor('owner');
     const response = await call({ method: 'GET', url: `/api/v1/orgs/${acmeId}/members`, cookie });
     const members = memberSchema.array().parse(response.json());
-    expect(members).toHaveLength(6);
+    expect(members).toHaveLength(7);
     expect(members.map((m) => m.user.email)).not.toContain('owner@northwind.test');
     expect(members.map((m) => m.user.displayName)).toEqual(
       [...members.map((m) => m.user.displayName)].sort(),
@@ -183,7 +183,7 @@ describe('tenant data', () => {
     const response = await call({ method: 'GET', url: `/api/v1/orgs/${acmeId}`, cookie });
     expect(workspaceDetailSchema.parse(response.json())).toMatchObject({
       organisation: { id: acmeId, slug: 'acme', name: 'Acme Robotics' },
-      memberCount: 6,
+      memberCount: 7,
       role: { key: 'reviewer' },
     });
   });

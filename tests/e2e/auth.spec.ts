@@ -17,7 +17,7 @@ test.describe('signing in and out', () => {
     await page.goto('/login');
     await expect(page.getByRole('heading', { name: 'Sign in', level: 1 })).toBeVisible();
     await expect(page.getByRole('note')).toContainText('Development sign-in');
-    await expect(page.getByRole('button', { name: /^Sign in as / })).toHaveCount(7);
+    await expect(page.getByRole('button', { name: /^Sign in as / })).toHaveCount(8);
   });
 
   test('signs in as an identity and lands in its workspace', async ({ page }) => {

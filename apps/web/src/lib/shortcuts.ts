@@ -11,6 +11,7 @@ export type ShortcutAction =
   | 'select'
   | 'assign-me'
   | 'move'
+  | 'mine'
   | 'go-projects'
   | 'go-tickets'
   | 'go-board';
@@ -40,6 +41,7 @@ export const SHORTCUTS: { keys: string; does: string }[] = [
   { keys: 'x', does: 'Select the ticket in the list' },
   { keys: 'a', does: 'Assign the open ticket to me' },
   { keys: 'm', does: 'Move the open ticket to another status' },
+  { keys: 'Shift M', does: 'Show only tickets assigned to me, or everyone’s again' },
 ];
 
 const SINGLE: Record<string, ShortcutAction> = {
@@ -51,6 +53,7 @@ const SINGLE: Record<string, ShortcutAction> = {
   x: 'select',
   a: 'assign-me',
   m: 'move',
+  M: 'mine',
 };
 
 const AFTER_G: Record<string, ShortcutAction> = {

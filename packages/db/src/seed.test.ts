@@ -48,7 +48,7 @@ afterAll(async () => {
 });
 
 describe('DEV_IDENTITIES', () => {
-  it('lists the seven test identities in display order', () => {
+  it('lists the eight test identities in display order', () => {
     expect(DEV_IDENTITIES.map((identity) => identity.key)).toEqual([
       'owner',
       'admin',
@@ -56,6 +56,7 @@ describe('DEV_IDENTITIES', () => {
       'reviewer',
       'readonly',
       'restricted',
+      'reporter',
       'other-owner',
     ]);
   });
@@ -66,11 +67,11 @@ describe('DEV_IDENTITIES', () => {
 });
 
 describe('reseedDevelopmentData', () => {
-  it('creates two organisations, seven users and seven fixtures', async () => {
+  it('creates two organisations, eight users and eight fixtures', async () => {
     await reseedDevelopmentData(db);
     expect(await count(organisations)).toBe(2);
-    expect(await count(users)).toBe(7);
-    expect(await count(developmentFixtures)).toBe(7);
+    expect(await count(users)).toBe(8);
+    expect(await count(developmentFixtures)).toBe(8);
   });
 
   it('gives every identity exactly the memberships it declares', async () => {
@@ -132,8 +133,8 @@ describe('reseedDevelopmentData', () => {
     await reseedDevelopmentData(db);
     await reseedDevelopmentData(db);
     expect(await count(organisations)).toBe(2);
-    expect(await count(users)).toBe(7);
-    expect(await count(organisationMemberships)).toBe(8);
+    expect(await count(users)).toBe(8);
+    expect(await count(organisationMemberships)).toBe(9);
   });
 
   it('wipes anything that was not part of the seed', async () => {
@@ -178,7 +179,7 @@ describe('seedDevelopmentDataIfEmpty', () => {
   it('seeds an empty database once and then leaves it alone', async () => {
     expect(await seedDevelopmentDataIfEmpty(db)).toBe(true);
     expect(await seedDevelopmentDataIfEmpty(db)).toBe(false);
-    expect(await count(users)).toBe(7);
+    expect(await count(users)).toBe(8);
   });
 
   it('does not touch a database that already has organisations', async () => {

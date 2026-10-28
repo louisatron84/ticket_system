@@ -15,6 +15,8 @@ import {
 import type { Label, Progress, StatusCategory, TicketDetail, TicketSummary } from '@forge/shared';
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
+import { watchersOf } from '../notifications/service';
+import { triageInfoOf } from '../triage/read';
 import { openBlockersOf } from './blockers';
 import {
   criteriaCountsFor,
@@ -66,6 +68,8 @@ const columns = {
   parentId: tickets.parentId,
   parentKey: parentTicket.key,
   origin: tickets.origin,
+  triageState: tickets.triageState,
+  triageSnoozedUntil: tickets.triageSnoozedUntil,
   createdAt: tickets.createdAt,
   updatedAt: tickets.updatedAt,
 };
@@ -270,6 +274,10 @@ export async function loadTicketDetail(
     loadAttachments(executor, row.id),
     mentionedInOf(executor, row.id),
   ]);
+  const [watchers, triage] = await Promise.all([
+    watchersOf(executor, row.id),
+    triageInfoOf(executor, row),
+  ]);
   const references = await referencesOf(executor, organisationId, row, criteriaItems);
   const done = criteriaItems.filter((item) => item.done).length;
 
@@ -301,5 +309,7 @@ export async function loadTicketDetail(
     children,
     links,
     origin: row.origin as 'person' | 'scan',
+    watchers,
+    triage,
   };
 }

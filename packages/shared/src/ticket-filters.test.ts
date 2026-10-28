@@ -36,6 +36,8 @@ describe('parseTicketFilters: defaults', () => {
       pageSize: 50,
       top: false,
       tree: false,
+      triage: false,
+      watching: false,
     });
   });
 

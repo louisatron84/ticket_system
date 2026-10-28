@@ -72,6 +72,10 @@ export const ticketFilterSchema = z.strictObject({
   top: z.boolean().default(false),
   /** The list nests children under their parents. */
   tree: z.boolean().default(false),
+  /** Include tickets waiting in triage, which boards and lists otherwise leave out. */
+  triage: z.boolean().default(false),
+  /** Only tickets the viewer watches. */
+  watching: z.boolean().default(false),
 });
 export type TicketFilters = z.infer<typeof ticketFilterSchema>;
 
@@ -99,8 +103,10 @@ const SCALAR_FIELDS = [
   'blocked',
   'top',
   'tree',
+  'triage',
+  'watching',
 ] as const;
-const BOOLEAN_FIELDS: readonly string[] = ['archived', 'top', 'tree'];
+const BOOLEAN_FIELDS: readonly string[] = ['archived', 'top', 'tree', 'triage', 'watching'];
 
 type RawInput = Record<string, string | string[] | undefined>;
 
@@ -171,6 +177,8 @@ export function ticketFiltersToSearchParams(filters: TicketFilters): URLSearchPa
   if (filters.blocked) params.set('blocked', filters.blocked);
   if (filters.top) params.set('top', 'true');
   if (filters.tree) params.set('tree', 'true');
+  if (filters.triage) params.set('triage', 'true');
+  if (filters.watching) params.set('watching', 'true');
   return params;
 }
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { boardColumnPrefsSchema, boardColumnsSchema, boardDisplaySchema } from './board-display';
+import { notificationPrefsSchema } from './notifications';
 import { permissionSchema } from './permissions';
 
 export const preferencesSchema = z.strictObject({
@@ -8,6 +9,8 @@ export const preferencesSchema = z.strictObject({
   boardColumns: boardColumnsSchema.optional(),
   /** The column choice for the Tickets page's board, which spans projects. Null resets it. */
   ticketsBoardColumns: boardColumnPrefsSchema.nullable().optional(),
+  /** Kinds of notification switched off (or back on). Missing means on. */
+  notifications: notificationPrefsSchema.optional(),
 });
 export type Preferences = z.infer<typeof preferencesSchema>;
 

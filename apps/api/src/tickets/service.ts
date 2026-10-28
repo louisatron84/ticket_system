@@ -29,6 +29,8 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { isForeignKeyViolation } from '../db-errors';
 import { AppError } from '../errors';
 import { completionRefusal } from './blockers';
+import { ticketCreated, ticketUpdated } from '../notifications/ticket-activity';
+import { intakeNewTicket } from '../triage/service';
 import { syncTicketMentions } from './content';
 import { loadTicketDetail } from './read';
 
@@ -39,15 +41,23 @@ export type TicketContext = {
   permissions: readonly string[];
 };
 
-type Issue = { path: string; message: string };
+export type Issue = { path: string; message: string };
 
 const notFound = () => new AppError('not_found', 'Not found.', 404);
 
 /** Archived tickets are read-only: every change to one, or to its comments, answers with this. */
+/** A ticket waiting in triage is decided there, by a proposal and a second person's approval. */
+export const inTriageError = (key: string) =>
+  new AppError(
+    'conflict',
+    `${key} is waiting in triage. Decide it there: one person proposes, another approves.`,
+    409,
+  );
+
 export const archivedTicketError = () =>
   new AppError('conflict', 'This ticket is archived. Unarchive it to change it.', 409);
 
-function invalid(issues: Issue[]): AppError {
+export function invalid(issues: Issue[]): AppError {
   return new AppError(
     'validation_failed',
     'Some of the values refer to things that are not available here.',
@@ -61,7 +71,7 @@ function invalid(issues: Issue[]): AppError {
  * person gets a clear message. The composite foreign keys would refuse the same ids anyway; this
  * is the friendly layer on top of that guarantee.
  */
-async function findReferenceIssues(
+export async function findReferenceIssues(
   tx: Executor,
   organisationId: string,
   projectId: string,
@@ -214,6 +224,14 @@ export async function createTicket(
         labelIds: body.labelIds ?? [],
       });
       await syncTicketMentions(tx, context.organisationId, created.id);
+      await ticketCreated(tx, {
+        organisationId: context.organisationId,
+        actorId: context.actorUserId,
+        ticket: created,
+        assigneeId: body.assigneeId ?? null,
+        texts: [body.description ?? '', body.goal ?? '', ...(body.criteria ?? [])],
+      });
+      await intakeNewTicket(tx, { context, ticketId: created.id });
 
       const detail = await loadTicketDetail(tx, context.organisationId, created.key);
       if (!detail) throw new Error('A ticket that was just created could not be read back');
@@ -249,6 +267,9 @@ export async function updateTicket(
         .for('update');
       if (!row) throw notFound();
       if (row.archivedAt) throw archivedTicketError();
+      if (row.triageState && body.statusId !== undefined && body.statusId !== row.statusId) {
+        throw inTriageError(row.key);
+      }
 
       if (body.version !== row.version) {
         throw new AppError(
@@ -459,6 +480,23 @@ export async function updateTicket(
         });
 
       if (changes.length > 0) await record({ type: 'ticket.updated', data: { changes } });
+      await ticketUpdated(tx, {
+        organisationId: context.organisationId,
+        actorId: context.actorUserId,
+        ticket: { id: row.id, key: row.key },
+        ...('assigneeId' in patch
+          ? { assignee: { from: row.assigneeId, to: patch.assigneeId ?? null } }
+          : {}),
+        ...(statusChanged ? { status: { from: current.status.name, to: next.status.name } } : {}),
+        ...(patch.description !== undefined || patch.goal !== undefined
+          ? {
+              texts: {
+                before: [row.description, row.goal],
+                after: [next.description, next.goal],
+              },
+            }
+          : {}),
+      });
       if (statusChanged) {
         await record({
           type: 'ticket.status_changed',
@@ -507,6 +545,7 @@ export async function setArchived(
       .where(and(eq(tickets.organisationId, context.organisationId), eq(tickets.key, ticketKey)))
       .for('update');
     if (!row) throw notFound();
+    if (row.triageState && archived) throw inTriageError(row.key);
 
     const now = new Date();
     if (archived !== (row.archivedAt !== null)) {
@@ -614,6 +653,15 @@ export async function duplicateTicket(
       createdAt: new Date(now.getTime() + 1),
     });
     await syncTicketMentions(tx, context.organisationId, created.id);
+    // A copy is a new ticket like any other: it is watched, and a reporter's copy waits in triage.
+    await ticketCreated(tx, {
+      organisationId: context.organisationId,
+      actorId: context.actorUserId,
+      ticket: created,
+      assigneeId: hasPermission(context.permissions, 'tickets.assign') ? source.assigneeId : null,
+      texts: [source.description, source.goal, ...sourceCriteria.map((c) => c.text)],
+    });
+    await intakeNewTicket(tx, { context, ticketId: created.id });
 
     const detail = await loadTicketDetail(tx, context.organisationId, created.key);
     if (!detail) throw new Error('A ticket that was just created could not be read back');

@@ -7,9 +7,13 @@ import {
   CopyPlus,
   CopyX,
   Ellipsis,
+  Filter,
   Link as LinkIcon,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
+import { toast } from 'sonner';
+import { ApiRequestError, apiFetch } from '@/lib/api-client';
 import { ActionMenu, Item, useActionMenu } from './action-menu';
 import { MarkDuplicateDialog, useMarkDuplicateRequest } from './mark-duplicate-dialog';
 import { useTicketActions } from './use-ticket-actions';
@@ -26,6 +30,7 @@ export function TicketActionsMenu({
   canEdit,
   canCreate,
   canMarkDuplicate,
+  canSendToTriage = false,
 }: {
   organisationId: string;
   slug: string;
@@ -34,7 +39,10 @@ export function TicketActionsMenu({
   canCreate: boolean;
   /** May change its links: tickets.edit, the ticket and its project not archived. */
   canMarkDuplicate: boolean;
+  /** tickets.edit, and the ticket is open and not already in triage. */
+  canSendToTriage?: boolean;
 }) {
+  const router = useRouter();
   const { key } = ticket;
   const menu = useActionMenu(key);
   const actions = useTicketActions({ organisationId, slug, ticket, menu });
@@ -62,6 +70,28 @@ export function TicketActionsMenu({
           {canCreate && (
             <Item icon={<CopyPlus size={14} aria-hidden="true" />} onClick={actions.duplicate}>
               Duplicate
+            </Item>
+          )}
+          {canSendToTriage && (
+            <Item
+              icon={<Filter size={14} aria-hidden="true" />}
+              onClick={() => {
+                menu.close();
+                apiFetch(`/api/v1/orgs/${organisationId}/tickets/${key}/triage/send`, {
+                  method: 'POST',
+                })
+                  .then(() => {
+                    toast.success(`${key} is waiting in triage.`);
+                    router.refresh();
+                  })
+                  .catch((error: unknown) =>
+                    toast.error(
+                      error instanceof ApiRequestError ? error.message : 'Could not send it.',
+                    ),
+                  );
+              }}
+            >
+              Send to triage
             </Item>
           )}
           {canMarkDuplicate && (

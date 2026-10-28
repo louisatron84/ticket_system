@@ -197,6 +197,8 @@ export const projects = pgTable(
     nextTicketNumber: integer('next_ticket_number').notNull().default(1),
     /** While on, a ticket with an open blocker cannot move to a completed status that means done. */
     blockersStopCompletion: boolean('blockers_stop_completion').notNull().default(true),
+    /** While on, tickets from people who can create but not edit arrive in triage first. */
+    triageEnabled: boolean('triage_enabled').notNull().default(false),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdBy: uuid('created_by')
       .notNull()
@@ -373,6 +375,9 @@ export const tickets = pgTable(
     statusBeforeJamId: uuid('status_before_jam_id'),
     /** Who made the ticket: a person, or (with the security gate) a scan. */
     origin: text('origin').notNull().default('person'),
+    /** Null when the ticket is not in triage; otherwise waiting, proposed or snoozed. */
+    triageState: text('triage_state'),
+    triageSnoozedUntil: timestamp('triage_snoozed_until', { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -392,6 +397,15 @@ export const tickets = pgTable(
       ],
     }).onDelete('restrict'),
     check('tickets_origin_check', sql`${table.origin} in ('person', 'scan')`),
+    check(
+      'tickets_triage_state_check',
+      sql`${table.triageState} is null or ${table.triageState} in ('waiting', 'proposed', 'snoozed')`,
+    ),
+    check(
+      'tickets_triage_snooze_check',
+      sql`(${table.triageState} = 'snoozed') = (${table.triageSnoozedUntil} is not null)`,
+    ),
+    index('tickets_triage_idx').on(table.organisationId, table.triageState),
     index('tickets_parent_idx').on(table.parentId),
     foreignKey({
       name: 'tickets_project_fk',
@@ -809,5 +823,175 @@ export const cliLogins = pgTable(
       sql`(${table.status} in ('approved', 'collected')) = (${table.approvedBy} is not null)`,
     ),
     check('cli_logins_machine_length', sql`char_length(${table.machine}) between 1 and 100`),
+  ],
+);
+
+/**
+ * Who follows a ticket. `watching` false records that a person chose to stop, so automatic
+ * watching (creating, being assigned, mentioned, commenting) does not add them back.
+ */
+export const ticketWatchers = pgTable(
+  'ticket_watchers',
+  {
+    organisationId: organisationId(),
+    ticketId: uuid('ticket_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    watching: boolean('watching').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ticketId, table.userId] }),
+    foreignKey({
+      name: 'ticket_watchers_ticket_fk',
+      columns: [table.organisationId, table.ticketId],
+      foreignColumns: [tickets.organisationId, tickets.id],
+    }).onDelete('restrict'),
+    // Leaving a workspace stops a person watching its tickets.
+    foreignKey({
+      name: 'ticket_watchers_member_fk',
+      columns: [table.organisationId, table.userId],
+      foreignColumns: [organisationMemberships.organisationId, organisationMemberships.userId],
+    }).onDelete('cascade'),
+    index('ticket_watchers_user_idx').on(table.userId),
+  ],
+);
+
+/** One line in a person's inbox. Only its recipient ever reads or changes it. */
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    recipientId: uuid('recipient_id').notNull(),
+    kind: text('kind').notNull(),
+    ticketId: uuid('ticket_id').notNull(),
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'restrict' }),
+    /** What happened, in words, captured when it happened. */
+    text: text('text').notNull(),
+    /** Set for notifications that must happen at most once, e.g. `due_soon:2026-10-29`. */
+    dedupeKey: text('dedupe_key'),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'notifications_ticket_fk',
+      columns: [table.organisationId, table.ticketId],
+      foreignColumns: [tickets.organisationId, tickets.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'notifications_member_fk',
+      columns: [table.organisationId, table.recipientId],
+      foreignColumns: [organisationMemberships.organisationId, organisationMemberships.userId],
+    }).onDelete('cascade'),
+    check(
+      'notifications_kind_check',
+      sql`${table.kind} in ('assigned', 'mentioned', 'commented', 'moved', 'due_soon', 'overdue', 'triage_arrival', 'triage_approval', 'triage_outcome')`,
+    ),
+    check('notifications_text_length', sql`char_length(${table.text}) between 1 and 300`),
+    uniqueIndex('notifications_dedupe_unique')
+      .on(table.recipientId, table.ticketId, table.kind, table.dedupeKey)
+      .where(sql`${table.dedupeKey} is not null`),
+    index('notifications_recipient_idx').on(table.recipientId, table.createdAt.desc()),
+  ],
+);
+
+/**
+ * A triage decision waiting for a second person. At most one open proposal per ticket; it is
+ * closed by an approval (the action is applied) or a rejection.
+ */
+export const triageProposals = pgTable(
+  'triage_proposals',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    ticketId: uuid('ticket_id').notNull(),
+    action: text('action').notNull(),
+    /** What the action needs: assignee, priority, labels, the original's key, the reason. */
+    details: jsonb('details').notNull(),
+    proposedBy: uuid('proposed_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    decidedBy: uuid('decided_by').references(() => users.id, { onDelete: 'restrict' }),
+    decision: text('decision'),
+    note: text('note'),
+    createdAt: createdAt(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: 'triage_proposals_ticket_fk',
+      columns: [table.organisationId, table.ticketId],
+      foreignColumns: [tickets.organisationId, tickets.id],
+    }).onDelete('restrict'),
+    check(
+      'triage_proposals_action_check',
+      sql`${table.action} in ('accept', 'accept_warming', 'duplicate', 'decline')`,
+    ),
+    check(
+      'triage_proposals_decision_check',
+      sql`${table.decision} is null or ${table.decision} in ('approved', 'rejected')`,
+    ),
+    check(
+      'triage_proposals_decided_check',
+      sql`(${table.decision} is null) = (${table.decidedAt} is null) and (${table.decision} is null) = (${table.decidedBy} is null)`,
+    ),
+    // Four eyes: the person deciding is never the person who proposed.
+    check(
+      'triage_proposals_four_eyes',
+      sql`${table.decidedBy} is null or ${table.decidedBy} <> ${table.proposedBy}`,
+    ),
+    uniqueIndex('triage_proposals_open_unique')
+      .on(table.ticketId)
+      .where(sql`${table.decidedAt} is null`),
+  ],
+);
+
+/** Per project, in order: the first rule whose conditions all match fills in a new arrival. */
+export const triageRules = pgTable(
+  'triage_rules',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid('project_id').notNull(),
+    position: integer('position').notNull(),
+    name: text('name').notNull(),
+    conditions: jsonb('conditions').notNull(),
+    actions: jsonb('actions').notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'triage_rules_project_fk',
+      columns: [table.organisationId, table.projectId],
+      foreignColumns: [projects.organisationId, projects.id],
+    }).onDelete('restrict'),
+    check('triage_rules_name_length', sql`char_length(${table.name}) between 1 and 80`),
+    index('triage_rules_project_idx').on(table.projectId, table.position),
+  ],
+);
+
+/** Who is on triage duty, in turn, a week each. */
+export const triageRota = pgTable(
+  'triage_rota',
+  {
+    organisationId: organisationId(),
+    projectId: uuid('project_id').notNull(),
+    position: integer('position').notNull(),
+    userId: uuid('user_id').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.position] }),
+    foreignKey({
+      name: 'triage_rota_project_fk',
+      columns: [table.organisationId, table.projectId],
+      foreignColumns: [projects.organisationId, projects.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'triage_rota_member_fk',
+      columns: [table.organisationId, table.userId],
+      foreignColumns: [organisationMemberships.organisationId, organisationMemberships.userId],
+    }).onDelete('cascade'),
+    unique('triage_rota_project_user_unique').on(table.projectId, table.userId),
   ],
 );

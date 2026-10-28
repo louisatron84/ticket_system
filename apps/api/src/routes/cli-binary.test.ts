@@ -124,6 +124,34 @@ describe('the forge command', () => {
     expect(cold.err).toContain('From Quenched it can go to');
   });
 
+  it('reads the inbox and marks it read', async () => {
+    await forge(['login', '--token', '--server', server], {
+      input: `${await tokenFor('developer')}\n`,
+    });
+    expect((await forge(['inbox'])).out).toBe('Nothing unread.\n');
+    const owner = await ctx.cookieFor('owner');
+    const ticket = await ctx.app.inject({
+      method: 'GET',
+      url: `/api/v1/orgs/${f.acmeId}/tickets/WEB-4`,
+      headers: { cookie: owner },
+    });
+    await ctx.app.inject({
+      method: 'PATCH',
+      url: `/api/v1/orgs/${f.acmeId}/tickets/WEB-4`,
+      headers: { cookie: owner },
+      payload: {
+        version: ticketDetailSchema.parse(ticket.json()).version,
+        assigneeId: f.userId('developer'),
+      },
+    });
+    const unread = await forge(['inbox']);
+    expect(unread.out).toContain('Olivia Owner assigned WEB-4 to you');
+    expect(unread.out).toContain('1 unread');
+    expect((await forge(['inbox', 'read'])).out).toBe('All read.\n');
+    expect((await forge(['inbox'])).out).toBe('Nothing unread.\n');
+    expect((await forge(['inbox', '--all'])).out).toContain('WEB-4');
+  });
+
   it('lists and shows tickets, as text or JSON', async () => {
     await forge(['login', '--token', '--server', server], {
       input: `${await tokenFor('developer')}\n`,

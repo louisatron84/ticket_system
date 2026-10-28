@@ -21,6 +21,11 @@ Reading
   forge inspect <KEY> [--json]
                            show one ticket, and the moves it can make next
 
+Staying informed
+  forge inbox [--all] [--json]
+                           your unread notifications (--all: read ones too)
+  forge inbox read         mark them all read
+
 Moving
   forge cold <KEY>         to Cold Steel
   forge warm <KEY>         to Warming
@@ -179,6 +184,47 @@ async function inspect(args: string[], io: Io): Promise<number> {
   return OK;
 }
 
+type InboxItem = { text: string; read: boolean; createdAt: string };
+
+async function inbox(args: string[], io: Io): Promise<number> {
+  const parsed = parse('inbox', args, { flags: ['--all', '--json'] });
+  const [sub, ...rest] = parsed.positional;
+  if (rest.length > 0 || (sub !== undefined && sub !== 'read')) {
+    throw new UsageError('Usage: forge inbox [--all] [--json], or forge inbox read');
+  }
+  const config = await signedIn();
+  const base = `/api/v1/orgs/${config.workspace.id}/notifications`;
+  if (sub === 'read') {
+    await call(config.server, `${base}/read`, {
+      method: 'POST',
+      token: config.token,
+      json: { all: true },
+    });
+    io.out('All read.');
+    return OK;
+  }
+  const all = parsed.flags.has('--all');
+  const list = await call<{ items: InboxItem[]; unread: number }>(
+    config.server,
+    `${base}?filter=${all ? 'all' : 'unread'}`,
+    { token: config.token },
+  );
+  if (parsed.flags.has('--json')) {
+    io.out(JSON.stringify(list, null, 2));
+    return OK;
+  }
+  if (list.items.length === 0) {
+    io.out(all ? 'Your inbox is empty.' : 'Nothing unread.');
+    return OK;
+  }
+  for (const item of list.items) {
+    const when = item.createdAt.slice(0, 16).replace('T', ' ');
+    io.out(`${item.read ? ' ' : '*'} ${when}  ${item.text}`);
+  }
+  if (list.unread > 0) io.out(`${list.unread} unread. Mark them read with: forge inbox read`);
+  return OK;
+}
+
 export async function main(argv: string[], io: Io = defaultIo): Promise<number> {
   const args = [...argv];
   const command = args.shift();
@@ -204,6 +250,7 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
     }
     if (command === 'catalogue' || command === 'cat') return await catalogue(args, io);
     if (command === 'inspect') return await inspect(args, io);
+    if (command === 'inbox') return await inbox(args, io);
     if (isMoveWord(command)) {
       const key = oneKey(command, parse(command, args, {}).positional);
       const result = await moveTicket(await signedIn(), command, key);

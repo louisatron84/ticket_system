@@ -17,6 +17,7 @@ import {
   type TimelineItem,
 } from '@forge/shared';
 import { and, asc, eq, inArray, notInArray } from 'drizzle-orm';
+import { commentWritten } from '../notifications/ticket-activity';
 import { clearMentions, syncMentions } from './content';
 import { AppError } from '../errors';
 import { archivedTicketError, type TicketContext } from './service';
@@ -182,6 +183,12 @@ export async function addComment(
       sourceId: created!.id,
       text: input.body,
     });
+    await commentWritten(tx, {
+      organisationId: context.organisationId,
+      actorId: context.actorUserId,
+      ticket: { id: ticketId, key: input.ticketKey },
+      body: input.body,
+    });
     return toComment(await loadComment(tx, context.organisationId, ticketId, created!.id));
   });
 }
@@ -218,6 +225,13 @@ export async function editComment(
       kind: 'comment',
       sourceId: current.id,
       text: input.body,
+    });
+    await commentWritten(tx, {
+      organisationId: context.organisationId,
+      actorId: context.actorUserId,
+      ticket: { id: ticketId, key: input.ticketKey },
+      body: input.body,
+      previousBody: current.body,
     });
     const saved = await loadComment(tx, context.organisationId, ticketId, current.id);
     return withReactions(tx, saved, context.actorUserId);

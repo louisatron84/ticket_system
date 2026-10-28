@@ -32,7 +32,10 @@ export async function loadBoard(
     .orderBy(asc(projectStatuses.sortOrder));
 
   const shared = [
-    ...conditionsFor(filters, actor, { ignoreStatus: true, ignoreProject: true }),
+    ...conditionsFor({ ...filters, triage: false }, actor, {
+      ignoreStatus: true,
+      ignoreProject: true,
+    }),
     eq(tickets.projectId, project.id),
   ];
   const order = orderFor(filters.sort, filters.dir);

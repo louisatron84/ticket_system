@@ -1,4 +1,9 @@
-import { hasPermission, normalizeProjectKey, projectDetailSchema } from '@forge/shared';
+import {
+  hasPermission,
+  normalizeProjectKey,
+  projectDetailSchema,
+  ticketSummarySchema,
+} from '@forge/shared';
 import { Plus } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
@@ -44,6 +49,13 @@ export default async function ProjectLayout({
   if (!project.ok) notFound();
 
   const base = workspaceHref(membership.organisation.slug, `/projects/${project.data.key}`);
+  // The triage tab, with how many are waiting, only where triage is on.
+  const waiting = project.data.triageEnabled
+    ? await serverGet(
+        `/api/v1/orgs/${membership.organisation.id}/triage?project=${project.data.key}`,
+        ticketSummarySchema.array(),
+      )
+    : null;
   const canCreate = hasPermission(membership.permissions, 'tickets.create');
 
   return (
@@ -91,6 +103,17 @@ export default async function ProjectLayout({
         label="Project views"
         boardHref={`${base}/board`}
         listHref={`${base}/list`}
+        {...(waiting?.ok
+          ? {
+              triage: {
+                href: workspaceHref(
+                  membership.organisation.slug,
+                  `/triage?project=${project.data.key}`,
+                ),
+                count: waiting.data.length,
+              },
+            }
+          : {})}
         {...(hasPermission(membership.permissions, 'projects.manage')
           ? { settingsHref: `${base}/settings` }
           : {})}

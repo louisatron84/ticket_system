@@ -110,6 +110,17 @@ not listed as working in the README, assume it does not exist yet.
 - **Estimates and due dates** accept values from 0 to 99,999 minutes and any real calendar date;
   there is no business-hours or time-zone handling.
 
+## Staying informed (P5) limits
+
+- **In-app only.** No email, phone push or digests. The live stream is one per browser tab; with
+  more than one API process, every process listens to Postgres and delivers to its own streams.
+- **Jobs run in the API process**, once an hour; with several processes each runs them (the
+  dedupe keys stop double reminders, but the work is repeated).
+- **Due reminders** go to the assignee only.
+- **Triage rules** match on type, label, words in the title and who filed it, and set assignee,
+  priority, one label and the triager. Nothing else, and no live board updates yet.
+- **Approvers are everyone who can edit tickets in the workspace**, not per project.
+
 ## Content (P3a) limits
 
 - **Formatting is a subset.** No tables, no images from outside addresses, no nested quotes deeper

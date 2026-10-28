@@ -1,6 +1,7 @@
 import { createDb, createPool, loadDotEnv } from '@forge/db';
 import { buildApp } from './app';
 import { databaseCheck, migrationsCheck } from './checks';
+import { startJobs } from './notifications/jobs';
 import { ConfigError, loadConfig } from './config';
 
 loadDotEnv();
@@ -27,6 +28,11 @@ const app = await buildApp({
   db: createDb(pool),
 });
 
+// Due-date reminders and snoozed triage, every hour. Not started by tests, which call them directly.
+const stopJobs = startJobs(createDb(pool), (message, error) =>
+  app.log.error({ err: error }, message),
+);
+
 if (config.devAuth) {
   app.log.warn(
     'FORGE_DEV_AUTH is on: anyone who can reach this API can sign in as any seeded test user. ' +
@@ -39,6 +45,7 @@ async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   app.log.info({ signal }, 'shutting down');
+  stopJobs();
   await app.close();
   await pool.end();
   process.exit(0);

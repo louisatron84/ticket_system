@@ -5,17 +5,18 @@ import { NAV_ITEMS, breadcrumbsFor, visibleNavItems } from './nav';
 const acme = { slug: 'acme', name: 'Acme Robotics' };
 
 describe('navigation registry', () => {
-  it('lists the ten product areas from the spec, then the admin area', () => {
+  it('lists the product areas, then the admin area', () => {
     expect(NAV_ITEMS.map((item) => item.label)).toEqual([
       'Overview',
       'My Work',
+      'Inbox',
       'Projects',
       'Tickets',
+      'Triage',
       'Repositories',
       'Code Reviews',
       'Workflows',
       'Activity',
-      'Notifications',
       'Search',
       'Members',
     ]);
@@ -43,13 +44,22 @@ describe('visibleNavItems', () => {
     expect(visible(['workspace.view'])).toEqual(['Overview']);
   });
 
-  it('adds Projects and Tickets only with tickets.view', () => {
+  it('adds the ticket areas only with tickets.view', () => {
     expect(visible(['workspace.view', 'tickets.view'])).toEqual([
       'Overview',
+      'My Work',
+      'Inbox',
       'Projects',
       'Tickets',
+      'Triage',
     ]);
-    expect(visible(['tickets.view'])).toEqual(['Projects', 'Tickets']);
+    expect(visible(['tickets.view'])).toEqual([
+      'My Work',
+      'Inbox',
+      'Projects',
+      'Tickets',
+      'Triage',
+    ]);
     expect(visible(['workspace.view', 'tickets.create', 'tickets.edit'])).toEqual(['Overview']);
   });
 
@@ -59,7 +69,15 @@ describe('visibleNavItems', () => {
   });
 
   it('never shows planned areas, even to someone holding every permission', () => {
-    expect(visible([...PERMISSIONS])).toEqual(['Overview', 'Projects', 'Tickets', 'Members']);
+    expect(visible([...PERMISSIONS])).toEqual([
+      'Overview',
+      'My Work',
+      'Inbox',
+      'Projects',
+      'Tickets',
+      'Triage',
+      'Members',
+    ]);
   });
 
   it('puts the workspace slug into every href', () => {
@@ -72,8 +90,11 @@ describe('visibleNavItems', () => {
     const all = visibleNavItems({ slug: 'acme', permissions: [...PERMISSIONS] });
     expect(all.map((item) => item.href)).toEqual([
       '/w/acme',
+      '/w/acme/my-work',
+      '/w/acme/inbox',
       '/w/acme/projects',
       '/w/acme/tickets',
+      '/w/acme/triage',
       '/w/acme/members',
     ]);
   });
