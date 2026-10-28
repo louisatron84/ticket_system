@@ -20,6 +20,9 @@ import { registerTicketContentRoutes } from './routes/ticket-content';
 import { registerTicketStructureRoutes } from './routes/ticket-structure';
 import { localDiskStorage, type AttachmentStorage } from './attachments/storage';
 import { registerTokenRoutes } from './routes/tokens';
+import { registerNotificationRoutes } from './routes/notifications';
+import { registerTriageRoutes } from './routes/triage';
+import { NotificationHub } from './notifications/hub';
 import { registerViewRoutes } from './routes/views';
 
 export type { ReadinessCheck } from './readiness';
@@ -32,6 +35,8 @@ export type AppDeps = {
   readinessTimeoutMs?: number;
   /** Where attachment files go; local disk under `config.attachmentsDir` unless given. */
   storage?: AttachmentStorage;
+  /** Live notification delivery; one is made from the config unless given. */
+  hub?: NotificationHub;
 };
 
 const BODY_LIMIT_BYTES = 1_048_576;
@@ -89,6 +94,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerLabelRoutes(app, { db: deps.db });
   registerViewRoutes(app, { db: deps.db });
   registerTokenRoutes(app, { db: deps.db, config });
+  const hub =
+    deps.hub ??
+    new NotificationHub(config.databaseUrl, (message, error) =>
+      app.log.warn({ err: error }, message),
+    );
+  app.decorate('notificationHub', hub);
+  app.addHook('onClose', async () => hub.close());
+  registerNotificationRoutes(app, { db: deps.db, hub });
+  registerTriageRoutes(app, { db: deps.db });
   if (config.devAuth) registerDevRoutes(app, { db: deps.db, config });
   registerHealthRoutes(app, {
     checks: deps.readinessChecks,

@@ -239,7 +239,10 @@ describe('changing tickets in bulk', () => {
     expect(done).toEqual({
       key: 'LST-4',
       ok: false,
-      error: { code: 'validation_failed', message: "That move isn't allowed from Quenched." },
+      error: {
+        code: 'validation_failed',
+        message: "That move isn't allowed from Quenched. From Quenched it can go to Warming.",
+      },
     });
     expect(nope).toEqual({
       key: 'NOPE-1',

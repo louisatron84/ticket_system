@@ -24,6 +24,7 @@ import type {
   TicketSummary,
   Workflow,
 } from '@forge/shared';
+import { allowedMovesSentence } from '@forge/shared';
 import { useRouter } from 'next/navigation';
 import { useReducer, useState } from 'react';
 import { toast } from 'sonner';
@@ -163,6 +164,8 @@ export function Board({
   const board = display.show === 'top' ? topLevelOnly(state.board) : state.board;
   const { shown } = arrangeColumns(board.columns, columnPrefs);
   const shownKeys = new Set(shown.map((column) => column.status.key));
+  // Said out loud, so the totals on the board never seem to be missing tickets.
+  const hiddenColumns = board.columns.filter((column) => !shownKeys.has(column.status.key));
   // Lanes only make sense where several projects share the board.
   const lanes = display.lanes === 'project' && !scoped ? lanesOf(shown) : null;
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
@@ -193,7 +196,10 @@ export function Board({
     if (toKey === ticket.status.key) return;
     const target: StatusRef | null = canMoveTo(workflows, ticket, toKey);
     if (!target) {
-      toast.error(`${ticket.key} cannot move from ${ticket.status.name} to ${statusName(toKey)}.`);
+      const allowed = allowedStatuses(workflows, ticket).map((status) => status.name);
+      toast.error(
+        `${ticket.key} cannot move from ${ticket.status.name} to ${statusName(toKey)}. ${allowedMovesSentence(ticket.status.name, allowed)}`,
+      );
       return;
     }
 
@@ -389,6 +395,18 @@ export function Board({
         and without a positioned ancestor here it escapes this scroller's clipping and widens the
         whole page, which then scrolls sideways while a card is dragged.
       */}
+      {hiddenColumns.length > 0 && shown.length > 0 && (
+        <p className="mb-2 text-xs text-muted" data-testid="hidden-columns">
+          Hidden:{' '}
+          {hiddenColumns
+            .map(
+              (column) =>
+                `${column.status.name} (${column.total} ${column.total === 1 ? 'ticket' : 'tickets'})`,
+            )
+            .join(', ')}
+          . Show {hiddenColumns.length === 1 ? 'it' : 'them'} from Display.
+        </p>
+      )}
       <div
         data-density={display.density}
         className="relative -mx-4 overflow-x-auto px-4 pb-4 md:-mx-8 md:px-8"

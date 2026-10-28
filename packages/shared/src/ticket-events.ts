@@ -77,6 +77,22 @@ export const ticketEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('criteria.reordered'), data: z.object({}) }),
   z.object({ type: z.literal('attachment.added'), data: z.object({ fileName: z.string() }) }),
   z.object({ type: z.literal('attachment.removed'), data: z.object({ fileName: z.string() }) }),
+  // Triage. A summary is the proposal in words, e.g. "accept, assign to Dana".
+  z.object({
+    type: z.literal('triage.entered'),
+    data: z.object({ reason: z.enum(['intake', 'sent', 'woke', 'rejected']) }),
+  }),
+  z.object({ type: z.literal('triage.proposed'), data: z.object({ summary: z.string() }) }),
+  z.object({
+    type: z.literal('triage.approved'),
+    data: z.object({ summary: z.string(), proposedBy: z.string() }),
+  }),
+  z.object({
+    type: z.literal('triage.rejected'),
+    data: z.object({ summary: z.string(), note: z.string() }),
+  }),
+  z.object({ type: z.literal('triage.snoozed'), data: z.object({ until: z.string() }) }),
+  z.object({ type: z.literal('triage.rule_applied'), data: z.object({ rule: z.string() }) }),
 ]);
 export type TicketEvent = z.infer<typeof ticketEventSchema>;
 
@@ -185,6 +201,23 @@ export function describeTicketEvent(event: TicketEvent, actorName: string): stri
       return `${actorName} attached ${event.data.fileName}`;
     case 'attachment.removed':
       return `${actorName} removed the attachment ${event.data.fileName}`;
+    case 'triage.entered':
+      return {
+        intake: `${actorName}'s ticket arrived in triage`,
+        sent: `${actorName} sent this to triage`,
+        woke: 'This came back to triage after its snooze',
+        rejected: `${actorName}'s rejection put this back in triage`,
+      }[event.data.reason];
+    case 'triage.proposed':
+      return `${actorName} proposed: ${event.data.summary} (waiting for a second person)`;
+    case 'triage.approved':
+      return `${actorName} approved ${event.data.proposedBy}'s proposal: ${event.data.summary}`;
+    case 'triage.rejected':
+      return `${actorName} rejected the proposal (${event.data.summary}): ${event.data.note}`;
+    case 'triage.snoozed':
+      return `${actorName} snoozed this in triage until ${event.data.until}`;
+    case 'triage.rule_applied':
+      return `The triage rule "${event.data.rule}" filled this in`;
   }
 }
 

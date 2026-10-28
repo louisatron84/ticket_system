@@ -16,10 +16,13 @@ All three databases must be UTF-8 (see [setup](setup.md#the-database-must-be-utf
 store emoji and Arabic text on purpose, and a database in another encoding fails them (and
 `db:migrate` refuses it before that).
 
-After P3 (ticket parts, formatting, mentions, attachments, reactions, CLI tokens and the `forge`
-command) the suites held roughly: shared 339 tests, database 112, API 916 (including the real `forge`
-binary run against a live API in `cli-binary.test.ts`), web logic 424, CLI 5, browser 193. These
-numbers drift; the commands print the live ones.
+After P5 (watching, live notifications, My work and triage with four-eyes approval) the suites held
+roughly: shared 340 tests, database 112, API 948 (including the live event stream and the `forge`
+binary), web logic 433, CLI 7, and the browser suite. These numbers drift; the commands print the
+live ones.
+
+GitHub Actions (`.github/workflows/check.yml`) runs `npm run check` and then the browser tests on
+every push and pull request, starting the embedded PostgreSQL the same way `npm run db:start` does.
 
 ## What is covered
 

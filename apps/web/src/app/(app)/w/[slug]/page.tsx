@@ -1,4 +1,9 @@
-import { hasPermission, workspaceDetailSchema } from '@forge/shared';
+import {
+  PERMISSIONS,
+  PERMISSION_LABELS,
+  hasPermission,
+  workspaceDetailSchema,
+} from '@forge/shared';
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { SystemStatus } from '@/components/status/system-status';
@@ -58,11 +63,13 @@ export default async function WorkspaceOverviewPage({
           <p className="text-[13px] text-muted">Nothing. Your role has no permissions.</p>
         ) : (
           <ul className="grid gap-x-6 gap-y-1 text-[13px] sm:grid-cols-2">
-            {[...membership.permissions].sort().map((permission) => (
-              <li key={permission} className="font-mono text-xs text-muted">
-                {permission}
-              </li>
-            ))}
+            {PERMISSIONS.filter((permission) => membership.permissions.includes(permission)).map(
+              (permission) => (
+                <li key={permission} className="text-muted" title={permission}>
+                  {PERMISSION_LABELS[permission]}
+                </li>
+              ),
+            )}
           </ul>
         )}
       </section>

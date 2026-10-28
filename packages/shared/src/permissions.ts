@@ -93,3 +93,26 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, RoleDefinition> = {
 export function hasPermission(held: readonly string[], needed: Permission): boolean {
   return held.includes(needed);
 }
+
+/** What each permission lets a person do, in words for screens. */
+export const PERMISSION_LABELS: Record<Permission, string> = {
+  'workspace.view': 'See the workspace',
+  'workspace.manage': 'Rename and manage the workspace',
+  'members.view': 'See who the members are',
+  'members.manage': 'Add, remove and change members',
+  'roles.manage': 'Create and change roles',
+  'audit.view': 'Read the audit log',
+  'projects.manage': 'Create, change and archive projects',
+  'tickets.view': 'See tickets and boards',
+  'tickets.create': 'Create tickets',
+  'tickets.edit': 'Change, move and archive tickets',
+  'tickets.assign': 'Assign tickets to people',
+  'tickets.comment': 'Comment on tickets',
+  'fields.manage': 'Manage custom fields',
+  'workflows.configure': 'Change workflows',
+  'repositories.connect': 'Connect repositories',
+  'branches.create': 'Create branches',
+  'reviews.submit': 'Review changes',
+  'reviews.approve': 'Approve changes',
+  'pullRequests.merge': 'Merge changes',
+};

@@ -98,6 +98,8 @@ export function KeyboardShortcuts({ slug, canCreate }: { slug: string; canCreate
     switch (action) {
       case 'help':
         return setSheetOpen(true);
+      case 'mine':
+        return document.querySelector<HTMLElement>('[data-shortcut="mine"]')?.click();
       case 'search':
         return document.querySelector<HTMLElement>('[data-shortcut="search"]')?.focus();
       case 'create': {

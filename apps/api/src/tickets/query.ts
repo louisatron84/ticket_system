@@ -92,6 +92,13 @@ export function conditionsFor(
   };
 
   if (!filters.archived) add(isNull(tickets.archivedAt));
+  // Tickets waiting in triage have not joined the board yet.
+  if (!filters.triage) add(isNull(tickets.triageState));
+  if (filters.watching) {
+    add(
+      sql`exists (select 1 from ticket_watchers w where w.ticket_id = ${tickets.id} and w.user_id = ${actor.userId} and w.watching)`,
+    );
+  }
 
   if (filters.q) {
     add(

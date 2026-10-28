@@ -1,7 +1,7 @@
 'use client';
 
 import type { TicketFilters } from '@forge/shared';
-import { Search, X } from 'lucide-react';
+import { Search, UserRound, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
 import {
@@ -134,6 +134,8 @@ export function FilterBar({
   }
 
   const active = hasActiveFilters(filters, { ignoreProject: scoped });
+  // One click for the most common filter; the Assignee menu still offers "Me" with others.
+  const mine = filters.assignee.length === 1 && filters.assignee[0] === 'me';
 
   return (
     <div className="flex flex-col gap-3">
@@ -166,6 +168,24 @@ export function FilterBar({
             className={`${inputClass()} w-56 pl-8`}
           />
         </form>
+
+        <button
+          type="button"
+          aria-pressed={mine}
+          data-shortcut="mine"
+          title="Shift+M"
+          onClick={() =>
+            go(
+              withFilters(filters, {
+                assignee: mine ? filters.assignee.filter((value) => value !== 'me') : ['me'],
+              }),
+            )
+          }
+          className={`${buttonClass(mine ? 'primary' : 'secondary')} gap-1.5`}
+        >
+          <UserRound size={13} aria-hidden="true" />
+          Assigned to me
+        </button>
 
         {!scoped && (
           <FilterPopover label="Project" count={filters.project.length}>

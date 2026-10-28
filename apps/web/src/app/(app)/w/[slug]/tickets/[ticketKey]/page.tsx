@@ -30,6 +30,8 @@ import { BlockedNotice, ParentField, TicketLinks } from '@/components/tickets/ti
 import { TicketProgress } from '@/components/tickets/ticket-progress';
 import { TicketDescription, TicketTitle } from '@/components/tickets/ticket-text';
 import { TicketTimeline } from '@/components/tickets/ticket-timeline';
+import { TicketWatch } from '@/components/tickets/ticket-watch';
+import { TriagePanel } from '@/components/tickets/triage-panel';
 import { UserChip } from '@/components/tickets/user-chip';
 import { NoAccess } from '@/components/workspace/no-access';
 import { workspaceHref } from '@/lib/nav';
@@ -163,6 +165,11 @@ export default async function TicketPage({
                     canEdit={permissions.canEdit}
                     canCreate={permissions.canCreate}
                     canMarkDuplicate={canShape}
+                    canSendToTriage={
+                      canWrite &&
+                      ticket.data.triage === null &&
+                      ticket.data.status.category !== 'completed'
+                    }
                   />
                 </div>
               </div>
@@ -197,6 +204,18 @@ export default async function TicketPage({
 
             <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_20rem]">
               <div className="flex min-w-0 flex-col gap-8">
+                {ticket.data.triage && (
+                  <TriagePanel
+                    organisationId={membership.organisation.id}
+                    ticketKey={ticket.data.key}
+                    triage={ticket.data.triage}
+                    viewerId={viewer.user.id}
+                    canDecide={canWrite}
+                    canAssign={permissions.canAssign}
+                    members={memberList}
+                    priorities={config.data.priorities}
+                  />
+                )}
                 <TicketGoal />
                 <AcceptanceCriteria
                   organisationId={membership.organisation.id}
@@ -263,6 +282,12 @@ export default async function TicketPage({
                 <MentionedIn
                   slug={membership.organisation.slug}
                   tickets={ticket.data.mentionedIn}
+                />
+                <TicketWatch
+                  organisationId={membership.organisation.id}
+                  ticketKey={ticket.data.key}
+                  viewerId={viewer.user.id}
+                  watchers={ticket.data.watchers}
                 />
               </aside>
             </div>

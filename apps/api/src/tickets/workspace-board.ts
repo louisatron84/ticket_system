@@ -111,7 +111,7 @@ export async function loadWorkspaceBoard(
     ([keyA, a], [keyB, b]) => a.sortOrder - b.sortOrder || keyA.localeCompare(keyB),
   );
 
-  const shared = conditionsFor(filters, actor, { ignoreStatus: true });
+  const shared = conditionsFor({ ...filters, triage: false }, actor, { ignoreStatus: true });
   const order = orderFor(filters.sort, filters.dir);
   const columns = await Promise.all(
     groups.map(async ([key, group]) => {

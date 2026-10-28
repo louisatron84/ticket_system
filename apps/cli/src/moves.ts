@@ -1,21 +1,9 @@
 import { call } from './client';
+import { readTicket } from './tickets';
 import type { CliConfig } from './config';
+import { MOVE_WORDS, type MoveWord } from './words';
 
-/** The owner's words for each column, as doing words, and the status key each one means. */
-export const MOVE_WORDS = {
-  cold: { key: 'backlog', column: 'Cold Steel' },
-  warm: { key: 'open', column: 'Warming' },
-  hammer: { key: 'in_progress', column: 'In the Forge' },
-  temper: { key: 'in_review', column: 'Tempering' },
-  jammed: { key: 'blocked', column: 'Jammed' },
-  jam: { key: 'blocked', column: 'Jammed' },
-  quench: { key: 'done', column: 'Quenched' },
-  scrap: { key: 'cancelled', column: 'Scrapped' },
-} as const;
-
-export type MoveWord = keyof typeof MOVE_WORDS;
-
-export const isMoveWord = (word: string): word is MoveWord => Object.hasOwn(MOVE_WORDS, word);
+export { MOVE_WORDS, isMoveWord, type MoveWord } from './words';
 
 /** `web-12` or `WEB-12` as the canonical key, or null if it is not a ticket key. */
 export function ticketKey(input: string): string | null {
@@ -24,14 +12,6 @@ export function ticketKey(input: string): string | null {
 }
 
 type Status = { id: string; key: string; name: string };
-type Ticket = {
-  key: string;
-  title: string;
-  version: number;
-  status: Status;
-  project: { key: string };
-};
-
 export type MoveResult = { ok: true; message: string } | { ok: false; message: string };
 
 /**
@@ -45,9 +25,7 @@ export async function moveTicket(
 ): Promise<MoveResult> {
   const target = MOVE_WORDS[word];
   const api = `/api/v1/orgs/${config.workspace.id}`;
-  const ticket = await call<Ticket>(config.server, `${api}/tickets/${key}`, {
-    token: config.token,
-  });
+  const ticket = await readTicket(config, key);
   const project = await call<{ statuses: Status[] }>(
     config.server,
     `${api}/projects/${ticket.project.key}`,

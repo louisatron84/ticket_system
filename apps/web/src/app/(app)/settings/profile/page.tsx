@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import { NotificationSettings } from '@/components/profile/notification-settings';
 import { SidebarPreferenceSwitch } from '@/components/profile/sidebar-preference-switch';
 import { getViewer } from '@/lib/server/session';
 
@@ -35,6 +36,16 @@ export default async function ProfilePage() {
           Preferences
         </h2>
         <SidebarPreferenceSwitch />
+      </section>
+
+      <section aria-labelledby="notifications-title" id="notifications">
+        <h2 id="notifications-title" className="mb-1 text-base font-semibold">
+          Notifications
+        </h2>
+        <p className="mb-3 text-[13px] text-muted">
+          What reaches your inbox and the bell. You never get notified about your own changes.
+        </p>
+        <NotificationSettings initial={viewer.preferences.notifications} />
       </section>
 
       <section aria-labelledby="workspaces-title">

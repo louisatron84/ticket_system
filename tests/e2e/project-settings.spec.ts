@@ -50,8 +50,10 @@ test('someone who cannot manage projects has no Settings tab, and the page is no
   await expect(
     page.getByRole('navigation', { name: 'Project views' }).getByRole('link', { name: 'Settings' }),
   ).toHaveCount(0);
-  // The page streams, so the answer is the not-found page rather than a 404 status.
+  // A member who may not manage projects is told so, rather than shown a not-found page.
   await page.goto('/w/acme/projects/WEB/settings');
-  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: "You don't have access to this project's settings" }),
+  ).toBeVisible();
   await expect(page.getByRole('switch')).toHaveCount(0);
 });

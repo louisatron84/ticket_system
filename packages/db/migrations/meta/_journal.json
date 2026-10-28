@@ -64,6 +64,13 @@
       "when": 1793198363396,
       "tag": "0008_token_cascade",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793205728291,
+      "tag": "0009_staying_informed",
+      "breakpoints": true
     }
   ]
 }

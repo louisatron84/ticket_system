@@ -17,7 +17,7 @@ export const buttonClass = (variant: keyof typeof VARIANTS = 'secondary') =>
   `${BASE} ${VARIANTS[variant]}`;
 
 const CONTROL =
-  'w-full rounded-md border bg-raised px-2.5 text-[13px] text-text placeholder:text-muted/70 disabled:cursor-not-allowed disabled:opacity-60';
+  'w-full rounded-md border bg-raised px-2.5 text-[13px] text-text placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-60';
 
 /** Text inputs and selects. An invalid control swaps its border to the failure colour. */
 export const inputClass = (invalid = false) =>

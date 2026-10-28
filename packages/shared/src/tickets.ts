@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { hasControlCharacter, singleLineText } from './text';
+import { triageInfoSchema } from './triage';
 import { ERROR_CODES } from './errors';
 
 // ---------------------------------------------------------------------------
@@ -137,25 +139,9 @@ const LINE_FEED = 0x0a;
 const CARRIAGE_RETURN = 0x0d;
 const LINE_BREAKS_AND_TABS = [TAB, LINE_FEED, CARRIAGE_RETURN];
 
-/** True if the text has an ASCII control character (including NUL and DEL) not in `allowed`. */
-export function hasControlCharacter(value: string, allowed: number[] = []): boolean {
-  for (let i = 0; i < value.length; i += 1) {
-    const code = value.charCodeAt(i);
-    if ((code < 0x20 || code === 0x7f) && !allowed.includes(code)) return true;
-  }
-  return false;
-}
+export { hasControlCharacter, singleLineText } from './text';
 const hasControlExceptWhitespace = (value: string) =>
   hasControlCharacter(value, LINE_BREAKS_AND_TABS);
-
-/** A required single-line text, trimmed, 1 to `max` characters. */
-export const singleLineText = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .refine((value) => !hasControlCharacter(value), 'Must not contain control characters.');
 
 /** Free text that may span lines. Not trimmed; may be empty. */
 const multiLineText = (max: number) =>
@@ -376,6 +362,8 @@ export const projectSchema = z.object({
   openCount: z.number().int().nonnegative(),
   /** While on, a ticket with an open blocker cannot be completed as done (it can be scrapped). */
   blockersStopCompletion: z.boolean(),
+  /** While on, tickets from people who can create but not edit go to triage first. */
+  triageEnabled: z.boolean(),
 });
 export type Project = z.infer<typeof projectSchema>;
 
@@ -570,6 +558,10 @@ export const ticketDetailSchema = ticketSummarySchema.extend({
    * the workspace, so references can be shown as links. A key not listed stays plain text.
    */
   references: z.array(ticketRefSchema),
+  /** People following the ticket. */
+  watchers: z.array(z.object({ id: z.uuid(), displayName: z.string() })),
+  /** Set while the ticket is in triage. */
+  triage: triageInfoSchema.nullable(),
   reporter: userRef,
   component: componentSchema.nullable(),
   estimateMinutes: z.number().int().nullable(),
@@ -666,3 +658,16 @@ export const commentSchema = z.object({
   ),
 });
 export type Comment = z.infer<typeof commentSchema>;
+
+/**
+ * What a refused move adds, so people learn the workflow from the refusal:
+ * "From Tempering it can go to In the Forge, Quenched or Scrapped."
+ */
+export function allowedMovesSentence(fromName: string, toNames: readonly string[]): string {
+  if (toNames.length === 0) return `From ${fromName} it cannot move anywhere.`;
+  const list =
+    toNames.length === 1
+      ? toNames[0]
+      : `${toNames.slice(0, -1).join(', ')} or ${toNames[toNames.length - 1]}`;
+  return `From ${fromName} it can go to ${list}.`;
+}

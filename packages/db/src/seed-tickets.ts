@@ -7,6 +7,7 @@ import {
   components,
   labels,
   priorities,
+  projects,
   ticketComments,
   ticketCriteria,
   ticketLinks,
@@ -44,6 +45,8 @@ type ProjectSpec = {
   description: string;
   components: string[];
   tickets: TicketSpec[];
+  /** Tickets from people who may create but not edit wait in triage. */
+  triage?: boolean;
 };
 
 type WorkspaceSpec = {
@@ -84,6 +87,7 @@ const DEMO: WorkspaceSpec[] = [
       {
         key: 'WEB',
         name: 'Web App',
+        triage: true,
         description: 'The customer-facing website and checkout.',
         components: ['Frontend', 'Checkout'],
         tickets: [
@@ -450,6 +454,12 @@ export async function insertDemoTickets(
         description: project.description,
         createdBy: user(workspace.creator),
       });
+      if (project.triage) {
+        await executor
+          .update(projects)
+          .set({ triageEnabled: true })
+          .where(eq(projects.id, projectId));
+      }
 
       const componentIds = new Map<string, string>();
       if (project.components.length > 0) {

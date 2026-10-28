@@ -34,6 +34,7 @@ export default defineConfig({
         DATABASE_URL: E2E_DATABASE_URL,
         API_PORT: String(API_PORT),
         FORGE_DEV_AUTH: '1',
+        FORGE_DEV_RESET: '1',
         // Kept apart from a developer's own uploads.
         ATTACHMENTS_DIR: 'data/attachments-e2e',
         WEB_ORIGIN: `http://localhost:${WEB_PORT},http://127.0.0.1:${WEB_PORT}`,

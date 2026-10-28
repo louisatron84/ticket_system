@@ -1,9 +1,10 @@
 'use client';
 
-import type { DevIdentity, Membership, Viewer } from '@forge/shared';
+import { hasPermission, type DevIdentity, type Membership, type Viewer } from '@forge/shared';
 import { Menu } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { breadcrumbsFor } from '@/lib/nav';
+import { NotificationBell } from '@/components/notifications/bell';
 import { AccountMenu } from './account-menu';
 import { Breadcrumbs } from './breadcrumbs';
 
@@ -50,6 +51,14 @@ export function Topbar({
           >
             development
           </span>
+        )}
+        {workspace && hasPermission(workspace.permissions, 'tickets.view') && (
+          <NotificationBell
+            // A new workspace is a new stream of counts.
+            key={workspace.organisation.id}
+            organisationId={workspace.organisation.id}
+            slug={workspace.organisation.slug}
+          />
         )}
         <AccountMenu viewer={viewer} workspace={workspace} devIdentities={devIdentities} />
       </div>

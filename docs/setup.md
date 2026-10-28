@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Node.js 22.9 or newer** (the scripts use `process.loadEnvFile`). Check with `node --version`.
+- **Node.js 22.12 or newer** (the test tools need it; the scripts use `process.loadEnvFile`). Check with `node --version`.
 - **npm 10 or newer** (ships with Node 22).
 - Optional: Docker, if you prefer it for PostgreSQL.
 

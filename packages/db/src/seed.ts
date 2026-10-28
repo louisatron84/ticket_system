@@ -32,6 +32,23 @@ const RESTRICTED_ROLE = {
   description: 'A member with no permissions. Used to test denied actions.',
 } as const;
 
+/**
+ * Someone outside the team who files tickets but does not work them: they may create and comment,
+ * not edit. In a project with triage on, their tickets wait in triage. Acme only.
+ */
+const REPORTER_ROLE = {
+  key: 'reporter',
+  name: 'Reporter',
+  description: 'Files tickets and comments on them; does not change them.',
+  permissions: [
+    'workspace.view',
+    'members.view',
+    'tickets.view',
+    'tickets.create',
+    'tickets.comment',
+  ],
+} as const;
+
 /** In display order. Emails use the reserved .test domain, so they can never be real addresses. */
 export const DEV_IDENTITIES: readonly DevIdentityDefinition[] = [
   {
@@ -86,6 +103,14 @@ export const DEV_IDENTITIES: readonly DevIdentityDefinition[] = [
     memberships: [{ organisationSlug: 'acme', roleKey: 'restricted' }],
   },
   {
+    key: 'reporter',
+    email: 'reporter@acme.test',
+    displayName: 'Rowan Reporter',
+    label: 'Reporter',
+    description: 'Files tickets but cannot change them; in WEB their tickets go to triage.',
+    memberships: [{ organisationSlug: 'acme', roleKey: 'reporter' }],
+  },
+  {
     key: 'other-owner',
     email: 'owner@northwind.test',
     displayName: 'Nora Northwind',
@@ -113,6 +138,16 @@ async function insertDevelopmentData(tx: Executor): Promise<void> {
         .values({ organisationId, ...RESTRICTED_ROLE, permissions: [], isSystem: false })
         .returning({ id: roles.id });
       byKey.set(RESTRICTED_ROLE.key, restricted!.id);
+      const [reporter] = await tx
+        .insert(roles)
+        .values({
+          organisationId,
+          ...REPORTER_ROLE,
+          permissions: [...REPORTER_ROLE.permissions],
+          isSystem: false,
+        })
+        .returning({ id: roles.id });
+      byKey.set(REPORTER_ROLE.key, reporter!.id);
     }
     roleIdsByOrganisation.set(slug, byKey);
     // organisation ids are looked up again below by slug, keeping this loop about roles only

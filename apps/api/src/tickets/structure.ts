@@ -23,7 +23,7 @@ import { and, asc, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Db } from '@forge/db';
 import { AppError } from '../errors';
 import { loadTicketDetail } from './read';
-import { archivedTicketError, createTicket, type TicketContext } from './service';
+import { archivedTicketError, createTicket, inTriageError, type TicketContext } from './service';
 
 const notFound = () => new AppError('not_found', 'Not found.', 404);
 /** A refusal whose message is the reason itself, so whatever shows only the message says why. */
@@ -39,6 +39,7 @@ export type LockedTicket = {
   typeKey: string;
   archived: boolean;
   projectArchived: boolean;
+  triageState: string | null;
 };
 
 /** The canonical form of a key someone typed, or null if it is not a ticket key at all. */
@@ -67,6 +68,7 @@ export async function lockInIdOrder(
       typeKey: ticketTypes.key,
       archivedAt: tickets.archivedAt,
       projectArchivedAt: projects.archivedAt,
+      triageState: tickets.triageState,
     })
     .from(tickets)
     .innerJoin(ticketTypes, eq(ticketTypes.id, tickets.typeId))
@@ -378,144 +380,148 @@ export async function markDuplicate(
   db: Db,
   input: { context: TicketContext; ticketKey: string; originalKey: string },
 ): Promise<TicketDetail> {
+  return db.transaction((tx) => markDuplicateIn(tx, input));
+}
+
+/** The same, inside a transaction the caller already holds (triage approves with it). */
+export async function markDuplicateIn(
+  tx: Executor,
+  input: { context: TicketContext; ticketKey: string; originalKey: string },
+): Promise<TicketDetail> {
   const { context, ticketKey } = input;
   const originalKey = canonicalKey(input.originalKey);
   const noSuchTicket = () =>
     invalid('originalKey', `There is no ticket ${input.originalKey} in this workspace.`);
   if (!originalKey) throw noSuchTicket();
 
-  return db.transaction(async (tx) => {
-    await lockStructure(tx, context.organisationId);
-    const locked = await lockInIdOrder(tx, context.organisationId, [ticketKey, originalKey]);
-    const ticket = locked.get(ticketKey);
-    if (!ticket) throw notFound();
-    const original = locked.get(originalKey);
-    if (!original) throw noSuchTicket();
-    if (original.id === ticket.id) {
-      throw invalid('originalKey', "A ticket can't be a duplicate of itself.");
-    }
-    assertWritable(ticket);
-    assertWritable(original);
-    // Each marked as a duplicate of the other would scrap both and lose the original.
-    const [reverse] = await tx
-      .select({ id: ticketLinks.id })
-      .from(ticketLinks)
-      .where(
-        and(
-          eq(ticketLinks.kind, 'duplicates'),
-          eq(ticketLinks.sourceTicketId, original.id),
-          eq(ticketLinks.targetTicketId, ticket.id),
-        ),
-      );
-    if (reverse) {
-      throw invalid(
-        'originalKey',
-        `${original.key} is already a duplicate of ${ticket.key}, so ${ticket.key} can't be a duplicate of it.`,
-      );
-    }
+  await lockStructure(tx, context.organisationId);
+  const locked = await lockInIdOrder(tx, context.organisationId, [ticketKey, originalKey]);
+  const ticket = locked.get(ticketKey);
+  if (!ticket) throw notFound();
+  const original = locked.get(originalKey);
+  if (!original) throw noSuchTicket();
+  if (original.id === ticket.id) {
+    throw invalid('originalKey', "A ticket can't be a duplicate of itself.");
+  }
+  assertWritable(ticket);
+  assertWritable(original);
+  if (ticket.triageState) throw inTriageError(ticket.key);
+  // Each marked as a duplicate of the other would scrap both and lose the original.
+  const [reverse] = await tx
+    .select({ id: ticketLinks.id })
+    .from(ticketLinks)
+    .where(
+      and(
+        eq(ticketLinks.kind, 'duplicates'),
+        eq(ticketLinks.sourceTicketId, original.id),
+        eq(ticketLinks.targetTicketId, ticket.id),
+      ),
+    );
+  if (reverse) {
+    throw invalid(
+      'originalKey',
+      `${original.key} is already a duplicate of ${ticket.key}, so ${ticket.key} can't be a duplicate of it.`,
+    );
+  }
 
-    const [current] = await tx
-      .select({ id: projectStatuses.id, name: projectStatuses.name })
-      .from(tickets)
-      .innerJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
-      .where(eq(tickets.id, ticket.id));
-    const [cancellation] = await tx
-      .select({ id: projectStatuses.id, name: projectStatuses.name })
-      .from(projectStatuses)
+  const [current] = await tx
+    .select({ id: projectStatuses.id, name: projectStatuses.name })
+    .from(tickets)
+    .innerJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
+    .where(eq(tickets.id, ticket.id));
+  const [cancellation] = await tx
+    .select({ id: projectStatuses.id, name: projectStatuses.name })
+    .from(projectStatuses)
+    .where(
+      and(
+        eq(projectStatuses.projectId, ticket.projectId),
+        eq(projectStatuses.isCancellation, true),
+        eq(projectStatuses.isActive, true),
+      ),
+    )
+    .orderBy(asc(projectStatuses.sortOrder))
+    .limit(1);
+  if (!cancellation) {
+    throw invalid('statusId', `${ticket.key}'s project has no status for work that won't be done.`);
+  }
+  if (current!.id !== cancellation.id) {
+    const [allowed] = await tx
+      .select({ id: statusTransitions.id })
+      .from(statusTransitions)
       .where(
         and(
-          eq(projectStatuses.projectId, ticket.projectId),
-          eq(projectStatuses.isCancellation, true),
-          eq(projectStatuses.isActive, true),
+          eq(statusTransitions.projectId, ticket.projectId),
+          eq(statusTransitions.fromStatusId, current!.id),
+          eq(statusTransitions.toStatusId, cancellation.id),
         ),
-      )
-      .orderBy(asc(projectStatuses.sortOrder))
-      .limit(1);
-    if (!cancellation) {
+      );
+    if (!allowed) {
       throw invalid(
         'statusId',
-        `${ticket.key}'s project has no status for work that won't be done.`,
+        `${ticket.key} can't be ${cancellation.name.toLowerCase()} from ${current!.name}.`,
       );
     }
-    if (current!.id !== cancellation.id) {
-      const [allowed] = await tx
-        .select({ id: statusTransitions.id })
-        .from(statusTransitions)
-        .where(
-          and(
-            eq(statusTransitions.projectId, ticket.projectId),
-            eq(statusTransitions.fromStatusId, current!.id),
-            eq(statusTransitions.toStatusId, cancellation.id),
-          ),
-        );
-      if (!allowed) {
-        throw invalid(
-          'statusId',
-          `${ticket.key} can't be ${cancellation.name.toLowerCase()} from ${current!.name}.`,
-        );
-      }
-    }
+  }
 
-    const now = new Date();
-    const record = (ticketId: string, event: Parameters<typeof addTicketEvent>[1]['event']) =>
-      addTicketEvent(tx, {
-        organisationId: context.organisationId,
-        ticketId,
-        actorUserId: context.actorUserId,
-        event,
-        createdAt: now,
-      });
-
-    if (current!.id !== cancellation.id) {
-      await tx
-        .update(tickets)
-        .set({
-          statusId: cancellation.id,
-          completedAt: now,
-          statusBeforeJamId: null,
-          version: sql`${tickets.version} + 1`,
-          updatedAt: now,
-        })
-        .where(eq(tickets.id, ticket.id));
-      await record(ticket.id, {
-        type: 'ticket.status_changed',
-        data: { from: current!, to: cancellation },
-      });
-    }
-
-    const [existing] = await tx
-      .select({ id: ticketLinks.id })
-      .from(ticketLinks)
-      .where(
-        and(
-          eq(ticketLinks.kind, 'duplicates'),
-          eq(ticketLinks.sourceTicketId, ticket.id),
-          eq(ticketLinks.targetTicketId, original.id),
-        ),
-      );
-    if (!existing) {
-      await tx.insert(ticketLinks).values({
-        organisationId: context.organisationId,
-        sourceTicketId: ticket.id,
-        targetTicketId: original.id,
-        kind: 'duplicates',
-        createdBy: context.actorUserId,
-        createdAt: now,
-      });
-      await record(original.id, {
-        type: 'link.added',
-        data: { label: linkLabel('duplicates', 'inward'), otherKey: ticket.key },
-      });
-    }
-    await record(ticket.id, {
-      type: 'ticket.marked_duplicate',
-      data: { originalKey: original.key },
+  const now = new Date();
+  const record = (ticketId: string, event: Parameters<typeof addTicketEvent>[1]['event']) =>
+    addTicketEvent(tx, {
+      organisationId: context.organisationId,
+      ticketId,
+      actorUserId: context.actorUserId,
+      event,
+      createdAt: now,
     });
 
-    const detail = await loadTicketDetail(tx, context.organisationId, ticketKey);
-    if (!detail) throw new Error('A ticket that was just updated could not be read back');
-    return detail;
+  if (current!.id !== cancellation.id) {
+    await tx
+      .update(tickets)
+      .set({
+        statusId: cancellation.id,
+        completedAt: now,
+        statusBeforeJamId: null,
+        version: sql`${tickets.version} + 1`,
+        updatedAt: now,
+      })
+      .where(eq(tickets.id, ticket.id));
+    await record(ticket.id, {
+      type: 'ticket.status_changed',
+      data: { from: current!, to: cancellation },
+    });
+  }
+
+  const [existing] = await tx
+    .select({ id: ticketLinks.id })
+    .from(ticketLinks)
+    .where(
+      and(
+        eq(ticketLinks.kind, 'duplicates'),
+        eq(ticketLinks.sourceTicketId, ticket.id),
+        eq(ticketLinks.targetTicketId, original.id),
+      ),
+    );
+  if (!existing) {
+    await tx.insert(ticketLinks).values({
+      organisationId: context.organisationId,
+      sourceTicketId: ticket.id,
+      targetTicketId: original.id,
+      kind: 'duplicates',
+      createdBy: context.actorUserId,
+      createdAt: now,
+    });
+    await record(original.id, {
+      type: 'link.added',
+      data: { label: linkLabel('duplicates', 'inward'), otherKey: ticket.key },
+    });
+  }
+  await record(ticket.id, {
+    type: 'ticket.marked_duplicate',
+    data: { originalKey: original.key },
   });
+
+  const detail = await loadTicketDetail(tx, context.organisationId, ticketKey);
+  if (!detail) throw new Error('A ticket that was just updated could not be read back');
+  return detail;
 }
 
 /**

@@ -188,6 +188,31 @@ What a ticket says beyond its fields (P3a):
 - **Reactions**: `PUT /tickets/:key/comments/:id/reactions` with `{ reaction, on }`; comments carry
   their reactions, counted, with names and whether the viewer gave each.
 
+## Staying informed
+
+P5: watching, notifications, My work and triage.
+
+- **Watching** (`ticket_watchers`): you watch tickets you create, are assigned, are @mentioned in or
+  comment on. Unwatching is remembered (`watching = false`), so automatic watching never adds you
+  back. `PUT`/`DELETE /tickets/:key/watch`.
+- **Notifications** (`apps/api/src/notifications/`): `ticket-activity.ts` decides who hears about a
+  create, an edit or a comment; `service.ts` `notify()` writes them inside the same transaction,
+  skipping the actor, non-members and kinds the person switched off, one per person per change.
+  Each new row is announced with `pg_notify`, which Postgres delivers only when the transaction
+  commits. `hub.ts` listens on one dedicated connection and pushes to the recipient's open
+  server-sent-event streams (`GET /api/v1/me/events`, browser sessions only). The inbox is per
+  workspace (`GET /orgs/:id/notifications`, `POST .../read`) so command-line tokens can read it.
+- **Jobs** (`jobs.ts`): hourly due-soon and overdue reminders (deduplicated per due date) and
+  waking snoozed triage tickets. Started by `main.ts`; tests call them directly.
+- **Triage** (`apps/api/src/triage/`): `tickets.triage_state` is `waiting`, `proposed` or
+  `snoozed`; boards and lists leave such tickets out unless asked (`triage=true`). Intake happens in
+  `createTicket` for people with `tickets.create` but not `tickets.edit` in a project with triage
+  on. Decisions are `triage_proposals`: one open per ticket (partial unique index), decided under
+  the ticket's row lock, and the database refuses a decider who is the proposer. Approval carries
+  the decision out in the approver's name (`markDuplicateIn` is the duplicate path inside the same
+  transaction). Rules (`triage_rules`) and the rota (`triage_rota`) are saved together with
+  `PUT /projects/:key/triage-settings`.
+
 ## Board settings per person
 
 How a person likes their board (the **Display** menu) belongs to the person, not to the project.

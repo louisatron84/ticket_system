@@ -1,6 +1,6 @@
 # Development accounts
 
-Forge has seven seeded test identities so you can check what each kind of person sees and may do,
+Forge has eight seeded test identities so you can check what each kind of person sees and may do,
 and switch between them instantly without signing out. This exists **only in development**.
 
 ## Turn it on
@@ -18,7 +18,7 @@ npm run db:seed        # seeds only if the database has no organisations yet
 npm run db:reseed      # wipes EVERY table in the dev database, then seeds again
 ```
 
-Open <http://localhost:3000>. You are sent to `/login`, which lists the seven identities under a
+Open <http://localhost:3000>. You are sent to `/login`, which lists the eight identities under a
 "Development sign-in" banner.
 
 If `/login` instead says "Sign-in isn't configured for this environment yet", the API was started
@@ -28,15 +28,16 @@ without `FORGE_DEV_AUTH=1`.
 
 All emails use the reserved `.test` domain, so they can never be a real address.
 
-| Key           | Name             | Email                  | Role in Acme Robotics | What it is for                                                          |
-| ------------- | ---------------- | ---------------------- | --------------------- | ----------------------------------------------------------------------- |
-| `owner`       | Olivia Owner     | `owner@acme.test`      | Owner                 | Full administration, including who else is an owner                     |
-| `admin`       | Adam Admin       | `admin@acme.test`      | Administrator         | Configuration and member management; cannot touch owners                |
-| `developer`   | Dana Developer   | `developer@acme.test`  | Developer             | Ticket work, branches. Also a **read-only** member of Northwind Traders |
-| `reviewer`    | Riley Reviewer   | `reviewer@acme.test`   | Reviewer              | Review, approve and merge                                               |
-| `readonly`    | Remy Read-only   | `readonly@acme.test`   | Read-only             | Visibility testing: can look, cannot change                             |
-| `restricted`  | Casey Restricted | `restricted@acme.test` | Restricted (custom)   | A member with **no permissions**, for testing denied actions            |
-| `other-owner` | Nora Northwind   | `owner@northwind.test` | none (owns Northwind) | Tenant isolation: must never see anything in Acme                       |
+| Key           | Name             | Email                  | Role in Acme Robotics | What it is for                                                              |
+| ------------- | ---------------- | ---------------------- | --------------------- | --------------------------------------------------------------------------- |
+| `owner`       | Olivia Owner     | `owner@acme.test`      | Owner                 | Full administration, including who else is an owner                         |
+| `admin`       | Adam Admin       | `admin@acme.test`      | Administrator         | Configuration and member management; cannot touch owners                    |
+| `developer`   | Dana Developer   | `developer@acme.test`  | Developer             | Ticket work, branches. Also a **read-only** member of Northwind Traders     |
+| `reviewer`    | Riley Reviewer   | `reviewer@acme.test`   | Reviewer              | Review, approve and merge                                                   |
+| `readonly`    | Remy Read-only   | `readonly@acme.test`   | Read-only             | Visibility testing: can look, cannot change                                 |
+| `restricted`  | Casey Restricted | `restricted@acme.test` | Restricted (custom)   | A member with **no permissions**, for testing denied actions                |
+| `reporter`    | Rowan Reporter   | `reporter@acme.test`   | Reporter (custom)     | Files and comments on tickets, cannot change them; WEB tickets go to triage |
+| `other-owner` | Nora Northwind   | `owner@northwind.test` | none (owns Northwind) | Tenant isolation: must never see anything in Acme                           |
 
 Two workspaces exist: **Acme Robotics** (`acme`) and **Northwind Traders** (`northwind`).
 
@@ -70,7 +71,7 @@ were using and starts a new one, and ends with a full page load, so nothing the 
 could see is left in the browser.
 
 **Reset demo data** in the same menu asks for confirmation, then deletes every record in the
-development database (including projects and tickets you made) and recreates the seven accounts and
+development database (including projects and tickets you made) and recreates the eight accounts and
 the demo tickets. It signs you out.
 
 ## Why it cannot reach production

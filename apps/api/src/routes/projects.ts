@@ -40,6 +40,7 @@ async function loadProjects(db: Db, organisationId: string, onlyKey?: string): P
       description: projects.description,
       archivedAt: projects.archivedAt,
       blockersStopCompletion: projects.blockersStopCompletion,
+      triageEnabled: projects.triageEnabled,
       ticketCount: sql<number>`count(${tickets.id}) filter (where ${tickets.archivedAt} is null)::int`,
       openCount: sql<number>`count(${tickets.id}) filter (where ${tickets.archivedAt} is null and ${projectStatuses.category} <> 'completed')::int`,
     })

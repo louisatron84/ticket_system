@@ -62,6 +62,22 @@ industry standard (the owner's choice; stronger measures are listed in
   user is granted access). The command refuses plain `http://` to anything but `localhost` and
   `127.0.0.1`, does not follow redirects, and reads a pasted token without echoing it.
 
+## Notifications and triage
+
+- A notification is written for one recipient and only ever read or marked by them; another
+  person's id marks nothing. Nobody is notified about their own change, a person outside the
+  workspace never is (an old mention of a removed member notifies nobody), and the live stream
+  sends only the signed-in person's own notifications. The stream needs a browser session.
+- Notifications are announced with `pg_notify` inside the writing transaction, so a change that
+  rolls back never notifies anyone.
+- **Four eyes on triage.** Every decision but Snooze is a proposal; the approver must be a
+  different person with `tickets.edit`. The API refuses a self-approval and the table has a check
+  (`decided_by <> proposed_by`), so even a bug in the code could not let one person both propose
+  and approve. One open proposal per ticket (unique index), and decisions take the ticket's row
+  lock, so two approvals at once give one success and one `409`. Whatever the proposal names
+  (assignee, priority, labels, the original) is checked when it is proposed and again when it is
+  approved.
+
 ## Cross-site requests
 
 - `SameSite=Lax` stops browsers attaching the cookie to cross-site writes.
@@ -117,6 +133,10 @@ answer `401` when not signed in and the identical `404` for a workspace you are 
 | Download an attachment                                                                 | `tickets.view`, checked on every download against the file's own ticket             |
 | Remove an attachment                                                                   | its uploader, or anyone with `tickets.edit`                                         |
 | React to a comment                                                                     | `tickets.comment`                                                                   |
+| Read your inbox, mark notifications read                                               | `tickets.view` in that workspace; only your own notifications                       |
+| Watch or stop watching a ticket                                                        | `tickets.view`                                                                      |
+| Send to triage, propose, approve or reject, snooze                                     | `tickets.edit`; never approve or reject your own proposal (also a database check)   |
+| Change a project's triage settings (switch, rota, rules)                               | `projects.manage`                                                                   |
 | Turn a project's blocker rule on or off                                                | `projects.manage` (recorded in the audit log as a project update)                   |
 | Create, change or delete a **personal** saved view                                     | `tickets.view`, and it must be your own                                             |
 | Create, change or delete a **shared** saved view                                       | `projects.manage`                                                                   |
@@ -174,6 +194,13 @@ Other rules the API enforces, each with a test that does not go through the page
 See [development accounts](development-accounts.md#why-it-cannot-reach-production). In short: it
 cannot start in production, the routes do not exist unless enabled, it accepts only seeded
 identity keys, and it refuses foreign `Host` / `Origin` values.
+
+It is open to any program on the same machine: that is what makes it a development tool, and why
+real sign-in must replace it before Forge is reachable by anyone else. The most destructive part,
+**Reset demo data** (wipe every table and reseed, signing everyone out), is a separate switch,
+`FORGE_DEV_RESET`, off by default; its route does not exist without it, the button only appears
+with it, and it always refuses the main `forge` database. `npm run db:reseed` remains the
+deliberate way to start again.
 
 ## Audit trail
 

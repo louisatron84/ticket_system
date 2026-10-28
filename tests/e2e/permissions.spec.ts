@@ -74,22 +74,38 @@ test.describe('what each role sees', () => {
   test('navigation follows the role as the identity changes', async ({ page }) => {
     await signInAs(page, 'owner');
     const links = page.getByRole('navigation', { name: 'Primary' }).getByRole('link');
-    await expect(links).toHaveText(['Overview', 'Projects', 'Tickets', 'Members']);
+    await expect(links).toHaveText([
+      'Overview',
+      'My Work',
+      'Inbox',
+      'Projects',
+      'Tickets',
+      'Triage',
+      'Members',
+    ]);
 
     await switchTo(page, 'restricted');
     await expect(links).toHaveCount(0);
 
     await switchTo(page, 'developer');
-    await expect(links).toHaveText(['Overview', 'Projects', 'Tickets', 'Members']);
+    await expect(links).toHaveText([
+      'Overview',
+      'My Work',
+      'Inbox',
+      'Projects',
+      'Tickets',
+      'Triage',
+      'Members',
+    ]);
   });
 
   test('the overview lists the permissions of the current role', async ({ page }) => {
     await signInAs(page, 'readonly');
     const list = page.getByRole('region', { name: 'What your role allows here' });
     await expect(list.getByRole('listitem')).toHaveText([
-      'members.view',
-      'tickets.view',
-      'workspace.view',
+      'See the workspace',
+      'See who the members are',
+      'See tickets and boards',
     ]);
   });
 });
@@ -143,6 +159,7 @@ test.describe('the server decides, not the page', () => {
       'Developer',
       'Read-only',
       'Reviewer',
+      'Reporter',
       'Restricted',
     ]);
     await expect(options.filter({ hasText: 'Owner' })).toHaveCount(0);
@@ -184,7 +201,7 @@ test.describe('changing a role is visible to the person it happens to', () => {
     await switchTo(page, 'developer');
     await expect(page.getByText('Your role: Reviewer')).toBeVisible();
     const permissions = page.getByRole('region', { name: 'What your role allows here' });
-    await expect(permissions).toContainText('reviews.approve');
-    await expect(permissions).not.toContainText('tickets.edit');
+    await expect(permissions).toContainText('Approve changes');
+    await expect(permissions).not.toContainText('Change, move and archive tickets');
   });
 });
