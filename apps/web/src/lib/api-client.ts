@@ -47,7 +47,11 @@ export async function apiFetch<T = unknown>(
   if (!response.ok) {
     const parsed = apiErrorSchema.safeParse(await response.json().catch(() => undefined));
     if (parsed.success) {
-      throw new ApiRequestError(response.status, parsed.data.error.code, parsed.data.error.message);
+      const { code, message, details } = parsed.data.error;
+      // A refused value carries its real reason ("WEB-1 can't be quenched while API-4 is open.")
+      // in its first detail; the top-level message only says that something was refused.
+      const reason = code === 'validation_failed' ? details?.[0]?.message : undefined;
+      throw new ApiRequestError(response.status, code, reason ?? message);
     }
     throw new ApiRequestError(
       response.status,

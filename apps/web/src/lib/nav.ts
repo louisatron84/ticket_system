@@ -1,4 +1,4 @@
-import { hasPermission, type Permission } from '@forge/shared';
+import { hasPermission, normalizeProjectKey, parseTicketKey, type Permission } from '@forge/shared';
 import {
   Activity,
   Bell,
@@ -45,9 +45,17 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Projects',
     path: '/projects',
     icon: FolderKanban,
-    availability: 'planned',
+    availability: 'available',
+    requires: 'tickets.view',
   },
-  { id: 'tickets', label: 'Tickets', path: '/tickets', icon: Ticket, availability: 'planned' },
+  {
+    id: 'tickets',
+    label: 'Tickets',
+    path: '/tickets',
+    icon: Ticket,
+    availability: 'available',
+    requires: 'tickets.view',
+  },
   {
     id: 'repositories',
     label: 'Repositories',
@@ -107,19 +115,57 @@ export function visibleNavItems(context: {
   }));
 }
 
+const decode = (segment: string): string | null => {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+};
+
+const PROJECT_TABS = new Set(['board', 'list']);
+
+/**
+ * The trail shown in the top bar for an address. Anything it does not recognise (a key that could
+ * not exist, a stray extra segment) gets no trail at all, not a guess.
+ */
 export function breadcrumbsFor(
   pathname: string,
   workspace?: { slug: string; name: string },
 ): Breadcrumb[] {
   if (pathname === '/settings/profile') return [{ label: 'Profile' }];
 
-  const match = /^\/w\/([^/]+)(\/[a-z-]+)?$/.exec(pathname);
+  const match = /^\/w\/([^/]+)((?:\/[^/]+)*)$/.exec(pathname);
   if (!match || !workspace) return [];
-  if (decodeURIComponent(match[1]!) !== workspace.slug) return [];
+  if (decode(match[1]!) !== workspace.slug) return [];
 
+  const segments = match[2]!.split('/').filter(Boolean).map(decode);
+  if (segments.some((segment) => segment === null)) return [];
+  const [area, second, third, ...rest] = segments as string[];
+  if (rest.length > 0) return [];
+
+  const home: Breadcrumb = { label: workspace.name, href: workspaceHref(workspace.slug) };
   const item = NAV_ITEMS.find(
-    (candidate) => candidate.availability === 'available' && candidate.path === (match[2] ?? ''),
+    (candidate) =>
+      candidate.availability === 'available' && candidate.path === (area ? `/${area}` : ''),
   );
   if (!item) return [];
-  return [{ label: workspace.name, href: workspaceHref(workspace.slug) }, { label: item.label }];
+  const parent: Breadcrumb = { label: item.label, href: workspaceHref(workspace.slug, item.path) };
+
+  if (second === undefined) return [home, { label: item.label }];
+
+  if (item.id === 'projects') {
+    const key = normalizeProjectKey(second);
+    if (!key || (third !== undefined && !PROJECT_TABS.has(third))) return [];
+    return [home, parent, { label: key }];
+  }
+
+  if (item.id === 'tickets' && third === undefined) {
+    if (second === 'new') return [home, parent, { label: 'New ticket' }];
+    if (second === 'board') return [home, parent, { label: 'Board' }];
+    const ticket = parseTicketKey(second);
+    return ticket ? [home, parent, { label: `${ticket.projectKey}-${ticket.number}` }] : [];
+  }
+
+  return [];
 }

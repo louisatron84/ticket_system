@@ -82,3 +82,18 @@ export async function viewerOf(page: Page) {
     }[];
   }>;
 }
+
+/**
+ * Waits until the workspace's keyboard shortcuts and command menu are listening, and the page's own
+ * content is on screen: a page streams in hidden behind its loading skeleton, and a shortcut that
+ * acts on the page (focus the search box, walk the list) needs it to be shown.
+ */
+export async function keyboardReady(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      document.documentElement.dataset.keyboard === 'ready' &&
+      Array.from(document.querySelectorAll('h1')).some(
+        (heading) => (heading as HTMLElement).offsetParent !== null,
+      ),
+  );
+}

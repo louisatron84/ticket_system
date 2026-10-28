@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import type { Db } from './client';
 import { createOrganisationWithSystemRoles, type Executor } from './organisations';
 import { truncateAllTables } from './reset';
+import { insertDemoTickets } from './seed-tickets';
 import {
   developmentFixtures,
   organisationMemberships,
@@ -123,11 +124,13 @@ async function insertDevelopmentData(tx: Executor): Promise<void> {
     ),
   );
 
+  const userIds = new Map<string, string>();
   for (const [index, identity] of DEV_IDENTITIES.entries()) {
     const [user] = await tx
       .insert(users)
       .values({ email: identity.email, displayName: identity.displayName })
       .returning({ id: users.id });
+    userIds.set(identity.key, user!.id);
 
     for (const { organisationSlug, roleKey } of identity.memberships) {
       const organisationId = organisationIds.get(organisationSlug);
@@ -146,6 +149,8 @@ async function insertDevelopmentData(tx: Executor): Promise<void> {
       sortOrder: index,
     });
   }
+
+  await insertDemoTickets(tx, { organisationIds, userIds });
 }
 
 /** Wipes every table, then recreates the demo organisations and test identities. */

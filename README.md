@@ -4,11 +4,21 @@ Forge is a developer workspace where tickets, GitHub branches and pull requests,
 deterministic workflow automation are one connected product. Automation is rule-based and
 explainable; Forge makes no AI-driven decisions.
 
-**Current stage: 1 (accounts and workspaces).** You can sign in as one of seven seeded test
-accounts, switch between them instantly, and see how roles and permissions change what each can see
-and do. Everything is enforced by the API, and workspaces are isolated from each other. There are
-no projects or tickets yet. See [docs/known-limitations.md](docs/known-limitations.md) for exactly
-what is and is not built.
+**Current stage: 2, part A (projects and tickets).** You can sign in as one of seven seeded test
+accounts and switch between them instantly. Each workspace has projects with tickets that you can
+create, edit, comment on, filter, save as views, and move between statuses on a Kanban board or the
+ticket page, following each project's workflow. The Tickets page has Board and List tabs, so every
+project's tickets can be seen and moved on one board. Common work is quick: archive and duplicate,
+create straight into a board column, change status, priority and assignee from a card or a list row,
+change many tickets at once, and press Ctrl+K for the command menu or `?` for the keyboard shortcuts. Tickets can be split into parts (epic, ticket, sub-task, with progress shown on the parent), linked to each other, and blocked: a ticket held up by an unfinished one cannot be marked done, though it can always be scrapped. Statuses are named after the heat of the work (Cold
+Steel, Warming, In the Forge, Tempering, Jammed, Quenched, Scrapped) and coloured to match, the
+priorities run from Heatless through Ember, Flame and Blaze to Inferno, and each person can arrange their own board from its Display menu: which card details show, how tightly
+cards pack, and which columns appear and in what order. Roles decide what each account can see and
+do, everything is enforced by the API, and workspaces are isolated from each other.
+
+Not built yet: Stage 2 part B (custom fields, relationships and subtasks, attachments, admin
+screens for workflows and fields), GitHub, code review and workflow automation. See
+[docs/known-limitations.md](docs/known-limitations.md) for exactly what is and is not built.
 
 ## Quick start
 
@@ -19,11 +29,13 @@ npm install
 cp .env.example .env          # PowerShell: Copy-Item .env.example .env
 npm run db:start              # PostgreSQL in its own terminal; leave it running
 npm run db:migrate            # in a second terminal
-npm run db:seed               # seven test accounts in two demo workspaces
+npm run db:seed               # seven test accounts, two demo workspaces, demo tickets
 npm run dev                   # API on :4000, web on :3000
 ```
 
-Open <http://localhost:3000> and pick an account. Details, the Docker alternative and
+Open <http://localhost:3000> and pick an account. If `db:migrate` says the database is not UTF-8,
+your local database was created before Stage 2 on Windows; the fix is in
+[docs/setup.md](docs/setup.md#the-database-must-be-utf-8). Details, the Docker alternative and
 troubleshooting: [docs/setup.md](docs/setup.md). Who each test account is:
 [docs/development-accounts.md](docs/development-accounts.md).
 
@@ -41,16 +53,33 @@ troubleshooting: [docs/setup.md](docs/setup.md). Who each test account is:
 | `npm run check`                | Typecheck, lint, format check and all unit/integration tests           |
 | `npm run test:e2e`             | Browser tests on their own isolated stack ([testing](docs/testing.md)) |
 
+## The forge command
+
+`apps/cli` is a small command line for moving tickets. Install it once with
+`npm link -w @forge/cli`, then:
+
+```sh
+forge login                 # approve in the browser (or: forge login --token)
+forge hammer WEB-1          # move WEB-1 to In the Forge
+forge cold|warm|hammer|temper|jammed|quench|scrap <KEY>
+forge whoami
+forge logout                # also revokes the token on the server
+```
+
+Moves follow the ticket's workflow and the blocker rule exactly as the board does. Tokens are
+managed under the account menu, **CLI tokens**; see [security](docs/security.md#command-line-tokens).
+
 ## Repository map
 
 ```text
-apps/api         Fastify HTTP API (sessions, authorisation, workspaces, members, health)
-apps/web         Next.js application shell and pages
-packages/shared  Zod schemas, permissions and role rules used by both apps
+apps/api         Fastify HTTP API (sessions, authorisation, workspaces, members, projects, tickets, health)
+apps/web         Next.js application shell and pages (projects, ticket list, ticket page, board)
+apps/cli         The forge command: sign in and move tickets from a terminal
+packages/shared  Zod schemas, permissions, role rules, ticket rules and list filters used by both apps
 packages/db      Drizzle schema, migrations, seed and reset, connection pool
 scripts/         Local database launcher
 tests/e2e        Playwright browser tests
-docs/            Setup, architecture, data model, security, testing, known limitations
+docs/            Setup, architecture, data model, workflows, security, testing, known limitations
 ```
 
 ## Documentation
@@ -59,6 +88,7 @@ docs/            Setup, architecture, data model, security, testing, known limit
 - [Development accounts](docs/development-accounts.md)
 - [Architecture and decisions](docs/architecture.md)
 - [Data model](docs/data-model.md)
+- [Ticket workflows](docs/workflows.md)
 - [Security](docs/security.md)
 - [Testing](docs/testing.md)
 - [Known limitations](docs/known-limitations.md)

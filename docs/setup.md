@@ -67,13 +67,35 @@ docker compose up -d db
 In a second terminal:
 
 ```bash
-npm run db:migrate    # expect: "Migrations up to date: 2/2 applied." (the number grows over time)
-npm run db:seed       # seven test accounts in two demo workspaces; skips if data already exists
+npm run db:migrate    # expect: "Migrations up to date: 4/4 applied." (the number grows over time)
+npm run db:seed       # seven test accounts, two demo workspaces, and demo projects and tickets
 npm run dev           # API on http://127.0.0.1:4000, web on http://localhost:3000
 ```
 
+`db:seed` skips if the database already has data. Acme gets two projects (`WEB`, 12 tickets, and
+`API`, 8) and Northwind gets one (`OPS`, 4), with labels, components, comments and history, so the
+list and the board have something to show.
+
 Open <http://localhost:3000>. You are sent to a sign-in page listing the test accounts; pick one.
 See [development accounts](development-accounts.md) for who is who.
+
+### The database must be UTF-8
+
+Tickets hold text in any language and emoji, which needs a UTF-8 database. A cluster created by
+`npm run db:start` since Stage 2 is UTF-8. If yours was created earlier on Windows it may use a
+legacy single-byte encoding, and `npm run db:migrate` will stop with a message naming the database
+and its encoding. Rebuild it once (this deletes the local data):
+
+```bash
+npm run db:stop
+npm run db:reset
+npm run db:start      # in its own terminal
+npm run db:migrate
+npm run db:seed
+```
+
+Against a Postgres you manage yourself, create the database with `ENCODING 'UTF8'`
+(`CREATE DATABASE forge ENCODING 'UTF8' TEMPLATE template0`).
 
 You can also probe the API directly:
 
@@ -110,6 +132,9 @@ database has no seed data or is out of date: run `npm run db:migrate` and `npm r
 **A page says "This page failed to load".** The API is not running or crashed. Start it with
 `npm run dev`, and read the API terminal for the reason. If it exited immediately, the message
 names the invalid environment variable.
+
+**`db:migrate` says the database is not UTF-8.** See
+[The database must be UTF-8](#the-database-must-be-utf-8) above.
 
 **A status row says "Pending migrations".** Run `npm run db:migrate`.
 

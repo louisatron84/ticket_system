@@ -35,6 +35,26 @@ describe('apiFetch', () => {
     expect(error).toMatchObject({ status: 403, code: 'forbidden', message: 'No.' });
   });
 
+  it('says the reason a value was refused, not only that one was', async () => {
+    const error = await apiFetch(
+      '/api/v1/x',
+      {},
+      respond(422, {
+        error: {
+          code: 'validation_failed',
+          message: 'Some of the values refer to things that are not available here.',
+          requestId: 'req-1',
+          details: [{ path: 'statusId', message: "WEB-1 can't be quenched while API-4 is open." }],
+        },
+      }),
+    ).catch((e: unknown) => e);
+    expect(error).toMatchObject({
+      status: 422,
+      code: 'validation_failed',
+      message: "WEB-1 can't be quenched while API-4 is open.",
+    });
+  });
+
   it('still throws a useful error when the body is not the shared shape', async () => {
     const error = await apiFetch(
       '/api/v1/x',

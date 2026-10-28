@@ -61,6 +61,9 @@ async function start() {
     user: USER,
     password: PASSWORD,
     persistent: true,
+    // initdb otherwise follows the operating system's locale; on Windows that is WIN1252, which
+    // cannot store emoji or most non-Latin scripts.
+    initdbFlags: ['--encoding=UTF8'],
     onLog: (message) => verbose && console.log(`[postgres] ${String(message).trimEnd()}`),
     onError: (message) => verbose && console.error(`[postgres] ${String(message).trimEnd()}`),
   });
@@ -79,12 +82,23 @@ async function start() {
   await client.connect();
   try {
     for (const name of DATABASES) {
-      const { rowCount } = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [
-        name,
-      ]);
-      if (rowCount === 0) {
-        await pg.createDatabase(name);
+      const { rows } = await client.query(
+        'SELECT pg_encoding_to_char(encoding) AS encoding FROM pg_database WHERE datname = $1',
+        [name],
+      );
+      if (rows.length === 0) {
+        // Names come from the constant above, never from input. TEMPLATE template0 is what
+        // allows an encoding other than the template's.
+        await client.query(`CREATE DATABASE "${name}" ENCODING 'UTF8' TEMPLATE template0`);
         log(`Created database "${name}"`);
+      } else if (rows[0].encoding !== 'UTF8') {
+        // Encoding is fixed when a database is created, so this cannot be repaired in place.
+        console.warn(
+          `[dev-db] WARNING: database "${name}" uses ${rows[0].encoding}, not UTF8, so emoji and ` +
+            'non-Latin text will be rejected. This data directory predates the UTF8 setup. ' +
+            'To recreate it (deletes local data): npm run db:stop, npm run db:reset, ' +
+            'npm run db:start, npm run db:migrate, npm run db:seed.',
+        );
       }
     }
   } finally {

@@ -43,13 +43,23 @@ describe('visibleNavItems', () => {
     expect(visible(['workspace.view'])).toEqual(['Overview']);
   });
 
+  it('adds Projects and Tickets only with tickets.view', () => {
+    expect(visible(['workspace.view', 'tickets.view'])).toEqual([
+      'Overview',
+      'Projects',
+      'Tickets',
+    ]);
+    expect(visible(['tickets.view'])).toEqual(['Projects', 'Tickets']);
+    expect(visible(['workspace.view', 'tickets.create', 'tickets.edit'])).toEqual(['Overview']);
+  });
+
   it('adds Members only with members.view', () => {
     expect(visible(['workspace.view', 'members.view'])).toEqual(['Overview', 'Members']);
     expect(visible(['members.view'])).toEqual(['Members']);
   });
 
   it('never shows planned areas, even to someone holding every permission', () => {
-    expect(visible([...PERMISSIONS])).toEqual(['Overview', 'Members']);
+    expect(visible([...PERMISSIONS])).toEqual(['Overview', 'Projects', 'Tickets', 'Members']);
   });
 
   it('puts the workspace slug into every href', () => {
@@ -58,6 +68,14 @@ describe('visibleNavItems', () => {
       permissions: ['workspace.view', 'members.view'],
     });
     expect(items.map((item) => item.href)).toEqual(['/w/acme', '/w/acme/members']);
+
+    const all = visibleNavItems({ slug: 'acme', permissions: [...PERMISSIONS] });
+    expect(all.map((item) => item.href)).toEqual([
+      '/w/acme',
+      '/w/acme/projects',
+      '/w/acme/tickets',
+      '/w/acme/members',
+    ]);
   });
 
   it('encodes an unusual slug instead of trusting it', () => {
@@ -76,6 +94,71 @@ describe('breadcrumbsFor', () => {
       { label: 'Acme Robotics', href: '/w/acme' },
       { label: 'Members' },
     ]);
+  });
+
+  it('names the projects and tickets pages', () => {
+    expect(breadcrumbsFor('/w/acme/projects', acme)).toEqual([
+      { label: 'Acme Robotics', href: '/w/acme' },
+      { label: 'Projects' },
+    ]);
+    expect(breadcrumbsFor('/w/acme/tickets', acme)).toEqual([
+      { label: 'Acme Robotics', href: '/w/acme' },
+      { label: 'Tickets' },
+    ]);
+  });
+
+  it('names a project, whichever of its tabs is open', () => {
+    const expected = [
+      { label: 'Acme Robotics', href: '/w/acme' },
+      { label: 'Projects', href: '/w/acme/projects' },
+      { label: 'WEB' },
+    ];
+    expect(breadcrumbsFor('/w/acme/projects/WEB', acme)).toEqual(expected);
+    expect(breadcrumbsFor('/w/acme/projects/WEB/board', acme)).toEqual(expected);
+    expect(breadcrumbsFor('/w/acme/projects/WEB/list', acme)).toEqual(expected);
+  });
+
+  it('names a ticket and the new-ticket page', () => {
+    expect(breadcrumbsFor('/w/acme/tickets/WEB-12', acme)).toEqual([
+      { label: 'Acme Robotics', href: '/w/acme' },
+      { label: 'Tickets', href: '/w/acme/tickets' },
+      { label: 'WEB-12' },
+    ]);
+    expect(breadcrumbsFor('/w/acme/tickets/new', acme)).toEqual([
+      { label: 'Acme Robotics', href: '/w/acme' },
+      { label: 'Tickets', href: '/w/acme/tickets' },
+      { label: 'New ticket' },
+    ]);
+  });
+
+  it('names the Tickets board', () => {
+    expect(breadcrumbsFor('/w/acme/tickets/board', acme)).toEqual([
+      { label: 'Acme Robotics', href: '/w/acme' },
+      { label: 'Tickets', href: '/w/acme/tickets' },
+      { label: 'Board' },
+    ]);
+  });
+
+  it('shows a lower-case ticket or project key in its canonical form', () => {
+    expect(breadcrumbsFor('/w/acme/tickets/web-12', acme).at(-1)).toEqual({ label: 'WEB-12' });
+    expect(breadcrumbsFor('/w/acme/projects/web/board', acme).at(-1)).toEqual({ label: 'WEB' });
+  });
+
+  it.each([
+    '/w/acme/tickets/WEB-0',
+    '/w/acme/tickets/WEB-012',
+    '/w/acme/tickets/..%2Fx',
+    '/w/acme/tickets/WEB-1/extra',
+    '/w/acme/projects/W',
+    '/w/acme/projects/WEB/kanban',
+    '/w/acme/projects/WEB/board/more',
+    '/w/acme/projects/%00',
+  ])('returns no crumbs for the odd address %s', (path) => {
+    expect(breadcrumbsFor(path, acme)).toEqual([]);
+  });
+
+  it('returns no crumbs when the address names a different workspace', () => {
+    expect(breadcrumbsFor('/w/other/tickets/WEB-12', acme)).toEqual([]);
   });
 
   it('names the profile page', () => {

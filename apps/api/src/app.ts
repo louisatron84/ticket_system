@@ -12,6 +12,15 @@ import { registerHealthRoutes } from './routes/health';
 import { registerMeRoutes } from './routes/me';
 import { registerOrgRoutes } from './routes/orgs';
 import { registerPreferencesRoutes } from './routes/preferences';
+import { registerCommentRoutes } from './routes/comments';
+import { registerLabelRoutes } from './routes/labels';
+import { registerProjectRoutes } from './routes/projects';
+import { registerTicketRoutes } from './routes/tickets';
+import { registerTicketContentRoutes } from './routes/ticket-content';
+import { registerTicketStructureRoutes } from './routes/ticket-structure';
+import { localDiskStorage, type AttachmentStorage } from './attachments/storage';
+import { registerTokenRoutes } from './routes/tokens';
+import { registerViewRoutes } from './routes/views';
 
 export type { ReadinessCheck } from './readiness';
 
@@ -21,6 +30,8 @@ export type AppDeps = {
   db: Db;
   /** Per-check deadline for /health/ready; defaults to 2000 ms. */
   readinessTimeoutMs?: number;
+  /** Where attachment files go; local disk under `config.attachmentsDir` unless given. */
+  storage?: AttachmentStorage;
 };
 
 const BODY_LIMIT_BYTES = 1_048_576;
@@ -48,6 +59,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         : {}),
     },
     bodyLimit: BODY_LIMIT_BYTES,
+    // The web app proxies the browser (and the forge command) from this machine, and says who the
+    // real caller is in X-Forwarded-For. Only a proxy on loopback is believed.
+    trustProxy: 'loopback',
     // Never trust the client's header directly; genReqId validates it.
     requestIdHeader: false,
     genReqId: (request) => resolveRequestId(request.headers[REQUEST_ID_HEADER]),
@@ -64,6 +78,17 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerAuthRoutes(app, { db: deps.db });
   registerOrgRoutes(app, { db: deps.db });
   registerPreferencesRoutes(app, { db: deps.db });
+  registerProjectRoutes(app, { db: deps.db });
+  registerTicketRoutes(app, { db: deps.db });
+  registerTicketStructureRoutes(app, { db: deps.db });
+  registerTicketContentRoutes(app, {
+    db: deps.db,
+    storage: deps.storage ?? localDiskStorage(config.attachmentsDir),
+  });
+  registerCommentRoutes(app, { db: deps.db });
+  registerLabelRoutes(app, { db: deps.db });
+  registerViewRoutes(app, { db: deps.db });
+  registerTokenRoutes(app, { db: deps.db, config });
   if (config.devAuth) registerDevRoutes(app, { db: deps.db, config });
   registerHealthRoutes(app, {
     checks: deps.readinessChecks,

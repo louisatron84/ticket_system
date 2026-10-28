@@ -4,10 +4,17 @@ import type { DevIdentity, Viewer } from '@forge/shared';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Toaster } from 'sonner';
+import { contentWidth, type ContentWidth } from '@/lib/layout';
 import { currentWorkspace } from '@/lib/workspaces';
 import { Sidebar } from './sidebar';
 import { SidebarPreferenceProvider, useSidebarPreference } from './sidebar-preference';
 import { Topbar } from './topbar';
+
+const CONTENT_WIDTH_CLASS: Record<ContentWidth, string> = {
+  narrow: 'max-w-5xl',
+  wide: 'max-w-6xl',
+  full: 'max-w-none',
+};
 
 export function AppShell({
   viewer,
@@ -80,7 +87,11 @@ function ShellFrame({
           onOpenMenu={() => setMobileOpen(true)}
         />
         <main id="main" tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
-          <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-8 md:py-8">{children}</div>
+          <div
+            className={`mx-auto w-full px-4 py-6 md:px-8 md:py-8 ${CONTENT_WIDTH_CLASS[contentWidth(pathname)]}`}
+          >
+            {children}
+          </div>
         </main>
       </div>
 

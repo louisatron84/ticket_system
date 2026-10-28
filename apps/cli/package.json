@@ -1,0 +1,17 @@
+{
+  "name": "@forge/cli",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The forge command: sign in and move tickets from a terminal",
+  "bin": {
+    "forge": "bin/forge.mjs"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "tsx": "^4.23.15"
+  }
+}

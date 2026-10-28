@@ -22,15 +22,51 @@ export function registerPreferencesRoutes(app: FastifyInstance, deps: { db: Db }
       const patch = parseBody(preferencesSchema, request.body);
       const userId = request.auth!.user.id;
 
-      // jsonb concatenation merges atomically in the database, so two quick changes cannot
-      // overwrite each other with stale copies.
+      // For a person with nothing saved yet the patch is stored as it is, except that a choice
+      // being forgotten (null) has nothing to store.
+      const { boardColumns, ticketsBoardColumns, ...rest } = patch;
+      const firstSave = {
+        ...rest,
+        ...(ticketsBoardColumns ? { ticketsBoardColumns } : {}),
+        ...(boardColumns
+          ? {
+              boardColumns: Object.fromEntries(
+                Object.entries(boardColumns).filter(([, choice]) => choice !== null),
+              ),
+            }
+          : {}),
+      };
+
+      // Otherwise the merge happens in one statement in the database, so two quick changes cannot
+      // overwrite each other with stale copies. Plain jsonb `||` replaces a key's whole value, so
+      // `board` and `board.fields` are merged by hand (a change to one field keeps the others), and
+      // `boardColumns` merges project by project, with null removing a project. A null
+      // `ticketsBoardColumns` removes the key instead of storing a null.
+      const incoming = sql`${JSON.stringify(patch)}::jsonb`;
+      const stored = sql`coalesce(${userPreferences.data}->'board', '{}'::jsonb)`;
       await db
         .insert(userPreferences)
-        .values({ userId, data: patch })
+        .values({ userId, data: firstSave })
         .onConflictDoUpdate({
           target: userPreferences.userId,
           set: {
-            data: sql`${userPreferences.data} || ${JSON.stringify(patch)}::jsonb`,
+            data: sql`((${userPreferences.data} || (${incoming} - 'board' - 'boardColumns'))
+              || CASE WHEN ${incoming} ? 'boardColumns' THEN jsonb_build_object('boardColumns',
+                   jsonb_strip_nulls(
+                     coalesce(${userPreferences.data}->'boardColumns', '{}'::jsonb)
+                     || (${incoming}->'boardColumns')))
+                 ELSE '{}'::jsonb END
+              || CASE WHEN ${incoming} ? 'board' THEN jsonb_build_object('board',
+                   (${stored} - 'fields')
+                   || ((${incoming}->'board') - 'fields')
+                   || CASE WHEN ${stored} ? 'fields' OR (${incoming}->'board') ? 'fields'
+                        THEN jsonb_build_object('fields',
+                          coalesce(${stored}->'fields', '{}'::jsonb)
+                          || coalesce(${incoming}->'board'->'fields', '{}'::jsonb))
+                        ELSE '{}'::jsonb END)
+                 ELSE '{}'::jsonb END)
+              - CASE WHEN jsonb_typeof(${incoming}->'ticketsBoardColumns') = 'null'
+                  THEN 'ticketsBoardColumns' ELSE '' END`,
             updatedAt: new Date(),
           },
         });

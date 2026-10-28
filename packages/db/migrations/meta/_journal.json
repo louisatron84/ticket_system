@@ -15,6 +15,55 @@
       "when": 1792703306331,
       "tag": "0001_married_may_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792740266761,
+      "tag": "0002_nasty_gunslinger",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792760964463,
+      "tag": "0003_forge_status_names",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793124908196,
+      "tag": "0004_forge_heat_names",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793127788378,
+      "tag": "0005_ticket_structure",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793185941844,
+      "tag": "0006_ticket_content",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793190922965,
+      "tag": "0007_api_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793198363396,
+      "tag": "0008_token_cascade",
+      "breakpoints": true
     }
   ]
 }

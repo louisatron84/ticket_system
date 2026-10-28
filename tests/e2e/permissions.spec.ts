@@ -74,13 +74,13 @@ test.describe('what each role sees', () => {
   test('navigation follows the role as the identity changes', async ({ page }) => {
     await signInAs(page, 'owner');
     const links = page.getByRole('navigation', { name: 'Primary' }).getByRole('link');
-    await expect(links).toHaveText(['Overview', 'Members']);
+    await expect(links).toHaveText(['Overview', 'Projects', 'Tickets', 'Members']);
 
     await switchTo(page, 'restricted');
     await expect(links).toHaveCount(0);
 
     await switchTo(page, 'developer');
-    await expect(links).toHaveText(['Overview', 'Members']);
+    await expect(links).toHaveText(['Overview', 'Projects', 'Tickets', 'Members']);
   });
 
   test('the overview lists the permissions of the current role', async ({ page }) => {

@@ -15,6 +15,8 @@ export type AppConfig = {
   /** Origins allowed to make state-changing requests with a session cookie. */
   webOrigins: string[];
   sessionTtlHours: number;
+  /** The folder attachment files are stored in. */
+  attachmentsDir: string;
 };
 
 /** Thrown for invalid environment variables. The message names variables, never their values. */
@@ -61,6 +63,7 @@ const envSchema = z.object({
     .transform((value) => value.split(',').map((origin) => origin.trim()))
     .refine((origins) => origins.length > 0 && origins.every(isOrigin)),
   SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(168),
+  ATTACHMENTS_DIR: z.string().min(1).default('data/attachments'),
 });
 
 // Fixed text per variable: zod's own messages can include the offending value.
@@ -74,6 +77,7 @@ const PROBLEMS: Record<string, string> = {
   FORGE_DEV_AUTH: 'must be 1, true, 0 or false',
   WEB_ORIGIN: 'must be a comma-separated list of http(s) origins without paths',
   SESSION_TTL_HOURS: 'must be an integer between 1 and 720',
+  ATTACHMENTS_DIR: 'must be a folder path',
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
@@ -106,5 +110,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     devAuth: values.FORGE_DEV_AUTH,
     webOrigins: values.WEB_ORIGIN,
     sessionTtlHours: values.SESSION_TTL_HOURS,
+    attachmentsDir: values.ATTACHMENTS_DIR,
   };
 }

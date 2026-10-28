@@ -13,7 +13,7 @@ export function SidebarPreferenceSwitch() {
         role="switch"
         checked={collapsed}
         onChange={(event) => setCollapsed(event.target.checked)}
-        className="mt-0.5 size-4 accent-[var(--ember)]"
+        className="mt-0.5 size-4 accent-[var(--active)]"
       />
       <span>
         <span className="block font-medium">Collapse the sidebar</span>

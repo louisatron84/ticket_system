@@ -7,7 +7,30 @@ import { createDb } from './client';
 
 export const MIGRATIONS_DIR = fileURLToPath(new URL('../migrations', import.meta.url));
 
+/**
+ * Everything people type is stored as text, so the database has to be able to hold all of
+ * Unicode. A Postgres created on Windows can silently default to WIN1252, which accepts
+ * ordinary accented text but fails on the first emoji, Arabic or CJK character, as a 500 long
+ * after setup. Better to refuse up front, with the way out.
+ */
+export async function assertUtf8Database(pool: Pool): Promise<void> {
+  const { rows } = await pool.query<{ name: string; encoding: string }>(
+    `SELECT current_database() AS name, pg_encoding_to_char(encoding) AS encoding
+       FROM pg_database WHERE datname = current_database()`,
+  );
+  const { name, encoding } = rows[0] ?? { name: 'unknown', encoding: 'unknown' };
+  if (encoding !== 'UTF8') {
+    throw new Error(
+      `Database "${name}" uses the ${encoding} encoding, but Forge stores text in UTF8 (it cannot ` +
+        `hold emoji or non-Latin scripts otherwise). With the local database from npm run db:start, ` +
+        `recreate it: npm run db:stop, npm run db:reset, npm run db:start, then npm run db:migrate ` +
+        `and npm run db:seed. With your own Postgres, create the database with ENCODING 'UTF8'.`,
+    );
+  }
+}
+
 export async function runMigrations(pool: Pool): Promise<void> {
+  await assertUtf8Database(pool);
   await migrate(createDb(pool), { migrationsFolder: MIGRATIONS_DIR });
 }
 

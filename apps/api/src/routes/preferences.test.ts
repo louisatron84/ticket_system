@@ -101,3 +101,231 @@ describe('/api/v1/me/preferences', () => {
     expect((await get(cookie)).json()).toEqual({});
   });
 });
+
+describe('board settings in /api/v1/me/preferences', () => {
+  it('merges board changes made one after another', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    await patch(cookie, { board: { density: 'compact' } });
+    const response = await patch(cookie, { board: { heat: false } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ board: { density: 'compact', heat: false } });
+    expect((await get(cookie)).json()).toEqual({ board: { density: 'compact', heat: false } });
+  });
+
+  it('merges card fields, and a later value for the same field wins', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    await patch(cookie, { board: { fields: { labels: false } } });
+    await patch(cookie, { board: { fields: { type: true } } });
+    expect((await get(cookie)).json()).toEqual({
+      board: { fields: { labels: false, type: true } },
+    });
+    await patch(cookie, { board: { fields: { labels: true } } });
+    expect((await get(cookie)).json()).toEqual({ board: { fields: { labels: true, type: true } } });
+  });
+
+  it('leaves the sidebar setting alone, and the other way round', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    await patch(cookie, { sidebarCollapsed: true });
+    await patch(cookie, { board: { heat: false } });
+    expect((await get(cookie)).json()).toEqual({ sidebarCollapsed: true, board: { heat: false } });
+    await patch(cookie, { sidebarCollapsed: false });
+    expect((await get(cookie)).json()).toEqual({ sidebarCollapsed: false, board: { heat: false } });
+  });
+
+  it('keeps every one of several changes that arrive at the same moment', async () => {
+    for (let round = 0; round < 10; round += 1) {
+      await ctx.reseed();
+      const fresh = await ctx.cookieFor('owner');
+      const responses = await Promise.all([
+        patch(fresh, { board: { heat: false } }),
+        patch(fresh, { board: { density: 'compact' } }),
+        patch(fresh, { board: { fields: { comments: false } } }),
+      ]);
+      expect(responses.map((r) => r.statusCode)).toEqual([200, 200, 200]);
+      expect((await get(fresh)).json(), `round ${round}`).toEqual({
+        board: { heat: false, density: 'compact', fields: { comments: false } },
+      });
+    }
+  });
+
+  it.each([
+    ['an unknown key', { board: { colour: 'red' } }],
+    ['an unknown card field', { board: { fields: { assignee: false } } }],
+    ['a field that is not a boolean', { board: { fields: { labels: 'no' } } }],
+    ['an unknown density', { board: { density: 'huge' } }],
+    ['heat that is not a boolean', { board: { heat: 'yes' } }],
+    ['a board that is not an object', { board: 'compact' }],
+  ])('refuses %s with 422 and keeps what was stored', async (_label, payload) => {
+    const cookie = await ctx.cookieFor('owner');
+    await patch(cookie, { board: { density: 'compact' } });
+    const response = await patch(cookie, payload);
+    expect(response.statusCode).toBe(422);
+    expect((await get(cookie)).json()).toEqual({ board: { density: 'compact' } });
+  });
+
+  it('lets a read-only member save their own settings', async () => {
+    const cookie = await ctx.cookieFor('readonly');
+    const response = await patch(cookie, { board: { heat: false } });
+    expect(response.statusCode).toBe(200);
+    expect((await get(cookie)).json()).toEqual({ board: { heat: false } });
+  });
+
+  it("never mixes two people's settings", async () => {
+    const owner = await ctx.cookieFor('owner');
+    const admin = await ctx.cookieFor('admin');
+    await patch(owner, { board: { density: 'compact' } });
+    expect((await get(admin)).json()).toEqual({});
+    await patch(admin, { board: { heat: false } });
+    expect((await get(owner)).json()).toEqual({ board: { density: 'compact' } });
+  });
+});
+
+describe('the Tickets board columns in /api/v1/me/preferences', () => {
+  const choice = { hidden: ['blocked'], order: ['open'] };
+  const web = { hidden: ['cancelled'], order: [] };
+
+  it('saves the choice and replaces it as a whole', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    const saved = await patch(cookie, { ticketsBoardColumns: choice });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toEqual({ ticketsBoardColumns: choice });
+    await patch(cookie, { ticketsBoardColumns: { hidden: [], order: ['done'] } });
+    expect((await get(cookie)).json()).toEqual({
+      ticketsBoardColumns: { hidden: [], order: ['done'] },
+    });
+  });
+
+  it('forgets it with null', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    await patch(cookie, { ticketsBoardColumns: choice, sidebarCollapsed: true });
+    await patch(cookie, { ticketsBoardColumns: null });
+    expect((await get(cookie)).json()).toEqual({ sidebarCollapsed: true });
+  });
+
+  it('stores nothing for a null first save', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    const response = await patch(cookie, { ticketsBoardColumns: null });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({});
+  });
+
+  it('is kept apart from project boards and the display settings, both ways', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    await patch(cookie, { boardColumns: { WEB: web }, board: { heat: false } });
+    await patch(cookie, { ticketsBoardColumns: choice });
+    await patch(cookie, { boardColumns: { API: web } });
+    expect((await get(cookie)).json()).toEqual({
+      board: { heat: false },
+      boardColumns: { WEB: web, API: web },
+      ticketsBoardColumns: choice,
+    });
+  });
+
+  it('refuses a bad choice with 422', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    const response = await patch(cookie, { ticketsBoardColumns: { hidden: ['Bad Key'] } });
+    expect(response.statusCode).toBe(422);
+  });
+});
+
+describe('board columns in /api/v1/me/preferences', () => {
+  const web = { hidden: ['cancelled'], order: ['open', 'backlog'] };
+  const api = { hidden: [], order: ['in_progress'] };
+
+  it('remembers a project and keeps the others when another changes', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    await patch(cookie, { boardColumns: { WEB: web } });
+    const response = await patch(cookie, { boardColumns: { API: api } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ boardColumns: { WEB: web, API: api } });
+    expect((await get(cookie)).json()).toEqual({ boardColumns: { WEB: web, API: api } });
+  });
+
+  it("replaces one project's choice as a whole", async () => {
+    const cookie = await ctx.cookieFor('owner');
+    await patch(cookie, { boardColumns: { WEB: web } });
+    await patch(cookie, { boardColumns: { WEB: { hidden: [], order: [] } } });
+    expect((await get(cookie)).json()).toEqual({
+      boardColumns: { WEB: { hidden: [], order: [] } },
+    });
+  });
+
+  it("forgets a project's choice with null, and keeps the rest", async () => {
+    const cookie = await ctx.cookieFor('owner');
+    await patch(cookie, { boardColumns: { WEB: web, API: api } });
+    await patch(cookie, { boardColumns: { WEB: null } });
+    expect((await get(cookie)).json()).toEqual({ boardColumns: { API: api } });
+  });
+
+  it('never stores a null, even for a person who has saved nothing yet', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    const response = await patch(cookie, { boardColumns: { WEB: null, API: api } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ boardColumns: { API: api } });
+  });
+
+  it('keeps board display and columns apart from each other and from the sidebar', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    await patch(cookie, { sidebarCollapsed: true, board: { heat: false } });
+    await patch(cookie, { boardColumns: { WEB: web } });
+    await patch(cookie, { board: { density: 'compact' } });
+    expect((await get(cookie)).json()).toEqual({
+      sidebarCollapsed: true,
+      board: { heat: false, density: 'compact' },
+      boardColumns: { WEB: web },
+    });
+  });
+
+  it('keeps the choices for different projects that are saved at the same moment', async () => {
+    for (let round = 0; round < 10; round += 1) {
+      await ctx.reseed();
+      const cookie = await ctx.cookieFor('owner');
+      const responses = await Promise.all([
+        patch(cookie, { boardColumns: { WEB: web } }),
+        patch(cookie, { boardColumns: { API: api } }),
+        patch(cookie, { boardColumns: { OPS: { hidden: ['blocked'], order: [] } } }),
+      ]);
+      expect(responses.map((r) => r.statusCode)).toEqual([200, 200, 200]);
+      expect((await get(cookie)).json(), `round ${round}`).toEqual({
+        boardColumns: { WEB: web, API: api, OPS: { hidden: ['blocked'], order: [] } },
+      });
+    }
+  });
+
+  it.each([
+    ['a lower-case project key', { boardColumns: { web } }],
+    [
+      '21 hidden statuses',
+      {
+        boardColumns: { WEB: { hidden: Array.from({ length: 21 }, (_, i) => `s${i}`), order: [] } },
+      },
+    ],
+    ['an unknown field', { boardColumns: { WEB: { hidden: [], order: [], pinned: [] } } }],
+    ['a status key with capitals', { boardColumns: { WEB: { hidden: ['Cancelled'], order: [] } } }],
+    ['a list that is not a list', { boardColumns: { WEB: { hidden: 'cancelled', order: [] } } }],
+  ])('refuses %s with 422 and keeps what was stored', async (_label, payload) => {
+    const cookie = await ctx.cookieFor('owner');
+    await patch(cookie, { boardColumns: { WEB: web } });
+    const response = await patch(cookie, payload);
+    expect(response.statusCode).toBe(422);
+    expect((await get(cookie)).json()).toEqual({ boardColumns: { WEB: web } });
+  });
+
+  it('refuses more than 100 projects', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    const many = Object.fromEntries(
+      Array.from({ length: 101 }, (_, i) => [`K${i}`, { hidden: [], order: [] }]),
+    );
+    expect((await patch(cookie, { boardColumns: many })).statusCode).toBe(422);
+    expect((await get(cookie)).json()).toEqual({});
+  });
+
+  it('does not let one person see or change another', async () => {
+    const owner = await ctx.cookieFor('owner');
+    const admin = await ctx.cookieFor('admin');
+    await patch(owner, { boardColumns: { WEB: web } });
+    expect((await get(admin)).json()).toEqual({});
+    await patch(admin, { boardColumns: { WEB: api } });
+    expect((await get(owner)).json()).toEqual({ boardColumns: { WEB: web } });
+  });
+});

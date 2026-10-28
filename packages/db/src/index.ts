@@ -1,4 +1,5 @@
 export * from './client';
+export * from './defaults';
 export * from './env';
 export * from './migrations';
 export * from './organisations';
@@ -6,3 +7,4 @@ export * from './reset';
 export * from './schema';
 export * from './seed';
 export * from './testing';
+export * from './tickets';

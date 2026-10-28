@@ -1,4 +1,6 @@
 import { createDb, createPool, type Db } from '@forge/db';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import type { AppConfig } from './config';
 
 /** A valid config that points at nothing and logs nothing; override per test. */
@@ -13,6 +15,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     devAuth: false,
     webOrigins: ['http://localhost:3000', 'http://127.0.0.1:3000'],
     sessionTtlHours: 168,
+    attachmentsDir: path.join(tmpdir(), 'forge-test-attachments'),
     ...overrides,
   };
 }

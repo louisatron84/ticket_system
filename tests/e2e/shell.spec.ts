@@ -44,7 +44,7 @@ test.describe('Workspace overview', () => {
 
   test('offers only pages that exist, and only those the role may see', async ({ page }) => {
     const links = page.getByRole('navigation', { name: 'Primary' }).getByRole('link');
-    await expect(links).toHaveText(['Overview', 'Members']);
+    await expect(links).toHaveText(['Overview', 'Projects', 'Tickets', 'Members']);
   });
 });
 

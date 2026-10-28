@@ -10,7 +10,14 @@ SQL files in `packages/db/migrations`.
 - Every foreign key is `ON DELETE RESTRICT`. Nothing cascades, so deleting a user or workspace
   cannot silently destroy tenant data or audit history; it is refused instead.
 - Tenant-owned tables carry an `organisation_id` and are queried through it.
-- Names that must be unique ignoring case (user emails) use a unique index on `lower(...)`.
+- Names that must be unique ignoring case (user emails, label names, component names) use a unique
+  index on `lower(...)`.
+- **The database must be UTF-8.** Ticket text can contain emoji and any script; a database in a
+  single-byte encoding rejects them. `npm run db:migrate` checks `current_database()` and refuses to
+  run on anything else, naming the rebuild steps. New local clusters are created UTF-8
+  (`scripts/dev-db.mjs`). A hosted Postgres must be created with `ENCODING 'UTF8'`.
+- Text columns cannot hold a NUL character; the API rejects NUL and other control characters in
+  titles, descriptions, comments, names and filter text with `422` before they reach the database.
 
 ## Entities
 
@@ -25,19 +32,91 @@ users ──< sessions
 users ──1 user_preferences
 users ──1 development_fixtures                (development data only)
 organisations, users ──< audit_events          (both optional)
+
+organisations ──< projects ──< project_statuses ──< status_transitions (from, to)
+                    │  └──< components
+                    └──< tickets >── ticket_types, priorities   (per organisation)
+                           │  ├──< ticket_labels >── labels      (per organisation)
+                           │  ├──< ticket_comments
+                           │  └──< ticket_events                 (the ticket's history)
+organisations, users ──< saved_views
 ```
 
-| Table                      | Purpose                                                                | Key constraints                                                                                                |
-| -------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `users`                    | A person: email, display name                                          | unique `lower(email)`                                                                                          |
-| `organisations`            | A workspace (the tenant): slug, name                                   | unique slug; slug must match `^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$`                                               |
-| `roles`                    | A named set of permission keys, owned by one organisation              | unique `(organisation_id, key)`; `permissions text[]`; `is_system` flag                                        |
-| `organisation_memberships` | A user's membership of an organisation through one role                | PK `(organisation_id, user_id)`; **composite FK `(organisation_id, role_id)`** to `roles(organisation_id, id)` |
-| `sessions`                 | A signed-in browser session; stores the **hash** of the cookie token   | unique `token_hash`; `expires_at`, `revoked_at`, `last_seen_at`                                                |
-| `user_preferences`         | Per-person settings as validated JSON (`sidebarCollapsed`)             | one row per user                                                                                               |
-| `audit_events`             | Append-only record of important changes                                | `source` in (`user`, `dev`, `system`); `outcome` in (`success`, `denied`, `failed`)                            |
-| `development_fixtures`     | Maps the seeded test identity keys to users. Empty outside development | unique `user_id`                                                                                               |
-| `system_metadata`          | Key/value facts about the installation                                 |                                                                                                                |
+| Table                      | Purpose                                                                             | Key constraints                                                                                                |
+| -------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `users`                    | A person: email, display name                                                       | unique `lower(email)`                                                                                          |
+| `organisations`            | A workspace (the tenant): slug, name                                                | unique slug; slug must match `^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$`                                               |
+| `roles`                    | A named set of permission keys, owned by one organisation                           | unique `(organisation_id, key)`; `permissions text[]`; `is_system` flag                                        |
+| `organisation_memberships` | A user's membership of an organisation through one role                             | PK `(organisation_id, user_id)`; **composite FK `(organisation_id, role_id)`** to `roles(organisation_id, id)` |
+| `sessions`                 | A signed-in browser session; stores the **hash** of the cookie token                | unique `token_hash`; `expires_at`, `revoked_at`, `last_seen_at`                                                |
+| `user_preferences`         | Per-person settings as validated JSON (`sidebarCollapsed`, `board`, `boardColumns`) | one row per user                                                                                               |
+| `audit_events`             | Append-only record of important changes                                             | `source` in (`user`, `dev`, `system`); `outcome` in (`success`, `denied`, `failed`)                            |
+| `development_fixtures`     | Maps the seeded test identity keys to users. Empty outside development              | unique `user_id`                                                                                               |
+| `system_metadata`          | Key/value facts about the installation                                              |                                                                                                                |
+
+Ticketing (Stage 2). Every table below carries `organisation_id`.
+
+| Table                | Purpose                                                                   | Key constraints                                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `projects`           | A body of work with a short key (`WEB`) and a ticket counter              | unique `(organisation_id, key)`; key matches `^[A-Z][A-Z0-9]{1,9}$`; `next_ticket_number >= 1`; `archived_at`                                                       |
+| `ticket_types`       | Task, Bug, Feature and so on, per workspace                               | unique `(organisation_id, key)`; `is_active`, `sort_order`                                                                                                          |
+| `priorities`         | Heatless to Inferno, per workspace; higher `rank` is more urgent          | unique `(organisation_id, key)`; `is_active`                                                                                                                        |
+| `project_statuses`   | A project's own statuses, each in a category                              | unique `(project_id, key)`; category in (`not_started`, `in_progress`, `completed`); **at most one `is_initial` per project** (partial unique index)                |
+| `status_transitions` | The moves a ticket may make between two statuses of one project           | unique `(project_id, from, to)`; from and to must differ; both must be statuses of the same project (composite FKs)                                                 |
+| `components`         | A named part of a project                                                 | unique `(project_id, lower(name))`                                                                                                                                  |
+| `tickets`            | The unit of work: key `WEB-12`, title, description, status, people, dates | unique `(organisation_id, key)` and `(project_id, number)`; title 1 to 200 characters; `version >= 1`; composite FKs below; five indexes plus a trigram title index |
+| `labels`             | A coloured tag, per workspace                                             | unique `(organisation_id, lower(name))`; colour is one of eight names                                                                                               |
+| `ticket_labels`      | Which labels a ticket carries                                             | PK `(ticket_id, label_id)`; both ends in the same workspace (composite FKs)                                                                                         |
+| `ticket_links`       | A typed link between two tickets: `blocks`, `relates_to`, `duplicates`    | both ends in the same workspace (composite FKs); unique `(source, target, kind)`; no self links; `relates_to` stored once per pair                                  |
+| `ticket_comments`    | A comment on a ticket                                                     | `author_id`, `edited_at` (null until edited)                                                                                                                        |
+| `ticket_events`      | The ticket's history, append-only                                         | `source` in (`user`, `system`); `type` and `data` (validated by the shared schema)                                                                                  |
+| `saved_views`        | A named set of list filters, personal or shared                           | `scope` in (`personal`, `shared`); name unique per person for personal views and per workspace for shared ones, ignoring case                                       |
+
+### Tickets
+
+- **Status names and keys.** A status has a stable `key` (`backlog`, `open`, `in_progress`,
+  `in_review`, `blocked`, `done`, `cancelled`) and a `name` people read. The defaults are named after
+  the heat of the work (Cold Steel, Warming, In the Forge, Tempering, Jammed, Quenched, Scrapped;
+  see [workflows](workflows.md#the-default-workflow)). Migrations `0003_forge_status_names` and
+  `0004_forge_heat_names` renamed existing projects' statuses, but only those whose key and name
+  were still the old defaults. `0004` also renamed the priorities the same way: `lowest` Heatless,
+  `low` Ember, `normal` Flame, `high` Blaze, `critical` Inferno.
+  Saved views, filters and board settings refer to keys, so the rename did not touch them.
+- **Structure (P2, migration `0005_ticket_structure`).** `tickets.parent_id` (same workspace, at
+  most three levels, enforced by the API), `tickets.status_before_jam_id` (the status a ticket had
+  before it moved to Jammed), `tickets.origin` (`person`, later `scan`),
+  `project_statuses.is_cancellation` (true for Scrapped: blockers never stop a move to it) and
+  `projects.blockers_stop_completion` (on by default).
+- **Per-person board settings** live in `user_preferences.data` under `board` and `boardColumns`
+  (see [architecture](architecture.md#board-settings-per-person)), not in a table of their own.
+- **Key and numbering.** A ticket is `<project key>-<number>`. The number comes from
+  `projects.next_ticket_number`, which is incremented in the same transaction that inserts the
+  ticket (`createTicketRow`, the one implementation shared by the API and the demo seed). Two people
+  creating tickets at once get different numbers, and a rolled-back creation does not leave a gap
+  or a duplicate. Deleting is not offered, so numbers are never reused.
+- **Version.** `tickets.version` starts at 1 and increases on every change. An edit must present the
+  version it started from; a stale one is refused with `409`. See [workflows](workflows.md#simultaneous-edits).
+- **Completion.** `completed_at` is set when the ticket enters a `completed`-category status and
+  cleared when it leaves.
+- **Content (P3, migration `0006_ticket_content`).** `tickets.goal` (up to 500 characters);
+  `ticket_criteria` (ordered acceptance criteria: `position`, `text` up to 300 characters,
+  `done_at` and `done_by` set together when ticked; at most 50 per ticket, enforced by the API;
+  not part of the ticket's `version`); `ticket_mentions` (which tickets a description, goal,
+  criterion or comment refers to by key, rewritten whenever that text is saved);
+  `ticket_attachments` (file name, detected type, size, a random storage key; the bytes live in
+  storage, not the database); `comment_reactions` (one row per person, comment and reaction from a
+  fixed set).
+- **CLI tokens (P3b, migration `0007_api_tokens`).** `api_tokens` (owner and workspace, by a
+  composite foreign key to the membership; name, scope `read` or `write`, SHA-256 hash, a short
+  hint, how it was made, required expiry, last use, revocation) and `cli_logins` (a `forge login`
+  waiting for approval: both codes hashed, machine name, address, status `pending`, `approved`,
+  `denied` or `collected`, and, once approved, who approved it for which workspace and scope).
+- **Text is stored as written.** Descriptions, goals, criteria and comments are stored as the person
+  typed them, Markdown subset included, and formatted only when shown. There is no HTML.
+- **Dates.** `due_date` is a calendar date with no time or zone. `estimate_minutes` is whole minutes
+  (0 to 99,999) and is written and shown as `1h 30m`.
+- **Archiving.** `archived_at` exists on projects and tickets. Archiving a project stops new tickets;
+  there is no screen for it yet, and no screen archives tickets (Part B).
 
 ### Why the composite foreign key
 
@@ -46,6 +125,18 @@ A membership says "this user holds this role in this organisation". If `role_id`
 key on `(organisation_id, role_id)` makes that impossible at the database level, whatever the
 application code does.
 
+The ticketing tables use the same idea everywhere. Each reference includes `organisation_id`, and
+where it matters `project_id`, so the database itself refuses:
+
+- a ticket whose type, priority, label or comment belongs to another workspace;
+- a ticket whose status belongs to another **project** (even in the same workspace);
+- a ticket whose component belongs to another project;
+- an assignee or reporter who is not a member of the ticket's workspace;
+- a transition between statuses of two different projects.
+
+The API checks these first so a person gets a readable message (`422`, naming the field); the
+constraint is what holds if a check is ever missed.
+
 ### Roles and permissions
 
 Permission keys live in code (`packages/shared/src/permissions.ts`); a role row stores the keys it
@@ -53,10 +144,33 @@ grants. Each organisation gets five system roles on creation (owner, admin, deve
 read-only). The development seed adds one custom `restricted` role with no permissions to Acme.
 Editing roles through the UI is planned for Stage 6.
 
-### Audit events
+Stage 2 adds `projects.manage` (create and edit projects and components, and manage **shared**
+saved views) and `tickets.comment`. Existing system roles receive new permissions through
+`syncSystemRoles`, which `db:migrate` runs; custom roles are never changed by it.
 
-Written in the same transaction as the change they describe. Application code only inserts; it
-never updates or deletes them.
+### Defaults per workspace
+
+Every workspace has its own ticket types and priorities, created with the workspace and topped up
+by `ensureOrganisationDefaults` (it only fills gaps, so a renamed or deactivated entry is left as
+it is). Every project has its own copy of the default statuses and transitions
+([workflows](workflows.md)).
+
+### Audit events and ticket history
+
+Two separate records exist, for different readers:
+
+- `audit_events` records administrative changes: workspace and member changes, and in Stage 2
+  `project.created`, `project.updated`, `component.created`, `label.created`, and
+  `view.created`/`view.updated`/`view.deleted` for **shared** views (personal views are private and
+  not audited).
+- `ticket_events` types since P1 also include `ticket.archived`, `ticket.unarchived` and
+  `ticket.duplicated` (`{ fromKey }`, on the copy), read as "archived this ticket", "unarchived this
+  ticket" and "duplicated this from WEB-3".
+- `ticket_events` is the history of one ticket, shown on its page. Creating, editing, moving,
+  labelling and commenting on a ticket are recorded there and **not** in `audit_events`.
+
+Both are written in the same transaction as the change they describe, and application code only
+inserts into them; it never updates or deletes a row.
 
 ## Retention
 
