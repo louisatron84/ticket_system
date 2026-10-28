@@ -60,7 +60,10 @@ export function statusesAcross(workflows: readonly Workflow[]): StatusRef[] {
   for (const workflow of workflows) {
     if (workflow.archived) continue;
     for (const status of workflow.statuses) {
-      if (!seen.has(status.key)) seen.set(status.key, { ...status, id: status.key });
+      if (!seen.has(status.key)) {
+        const { key, name, category } = status;
+        seen.set(key, { id: key, key, name, category });
+      }
     }
   }
   return [...seen.values()];

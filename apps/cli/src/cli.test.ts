@@ -90,6 +90,12 @@ describe('strict arguments', () => {
     expect((await run('login', '--server')).code).toBe(2);
     expect((await run('hammer', 'WEB-1', '--force')).code).toBe(2);
     expect((await run('cat', '--limit', '0')).code).toBe(2);
+    for (const notPlain of ['1e1', '0x5', ' 7', '5.0', '101']) {
+      expect((await run('cat', '--limit', notPlain)).code, notPlain).toBe(2);
+    }
+    // Extra words are a mistake, never a quiet sign-out.
+    expect((await run('logout', 'extra')).code).toBe(2);
+    expect((await run('whoami', 'extra', 'words')).code).toBe(2);
     expect((await run('cat', 'WEB')).code).toBe(2);
     expect((await run('inspect')).code).toBe(2);
   });

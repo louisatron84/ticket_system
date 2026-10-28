@@ -21,7 +21,7 @@ No Docker and no separate database install are needed.
 ## 2. Get the code
 
 ```bash
-git clone -b board-heat https://github.com/louisatron84/ticket_system.git
+git clone https://github.com/louisatron84/ticket_system.git
 cd ticket_system
 ```
 

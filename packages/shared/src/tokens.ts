@@ -49,6 +49,8 @@ export const cliWhoAmISchema = z.object({
   workspace: workspaceRef,
   scope: z.enum(TOKEN_SCOPES),
   expiresAt: z.string(),
+  /** Where people open Forge in a browser, for links (the command may talk to the API directly). */
+  webUrl: z.string(),
 });
 export type CliWhoAmI = z.infer<typeof cliWhoAmISchema>;
 
@@ -91,6 +93,8 @@ export const cliLoginRequestSchema = z.object({
   userCode: z.string(),
   machine: z.string(),
   requestIp: z.string(),
+  /** False when the terminal asked from another address than the person looking at it now. */
+  fromYourAddress: z.boolean(),
   requestedAt: z.string(),
   expiresAt: z.string(),
 });
@@ -104,6 +108,8 @@ export const cliLoginDecisionBodySchema = z.discriminatedUnion('decision', [
     userCode: z.string().max(20),
     organisationId: z.uuid(),
     scope: z.enum(TOKEN_SCOPES),
+    /** Required when the login came from another address: the person said it really is theirs. */
+    differentAddressConfirmed: z.boolean().optional(),
   }),
   z.strictObject({ decision: z.literal('deny'), userCode: z.string().max(20) }),
 ]);

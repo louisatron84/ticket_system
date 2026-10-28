@@ -169,9 +169,10 @@ export function registerTicketContentRoutes(
     },
   );
 
+  // Removing a file needs the same permission as attaching one.
   app.delete(
     '/api/v1/orgs/:orgId/tickets/:ticketKey/attachments/:attachmentId',
-    { preHandler: orgAccess(db, 'tickets.view') },
+    { preHandler: orgAccess(db, 'tickets.edit') },
     async (request, reply): Promise<void> => {
       await deleteAttachment(db, storage, {
         context: context(request),

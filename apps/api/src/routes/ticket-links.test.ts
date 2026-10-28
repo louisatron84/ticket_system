@@ -147,6 +147,23 @@ describe('ticket links', () => {
     ]);
   });
 
+  it('refuses a longer blocking loop, naming the way round, from either side', async () => {
+    await linkOk('WEB-3', 'blocks', 'WEB-4');
+    await linkOk('WEB-4', 'blocks', 'API-4');
+    const response = await addLink('API-4', 'blocks', 'WEB-3');
+    expect(response.statusCode).toBe(422);
+    expect(apiErrorSchema.parse(response.json()).error.details).toEqual([
+      {
+        path: 'otherKey',
+        message:
+          "WEB-3 blocks WEB-4 blocks API-4, so API-4 can't block WEB-3: they would wait on each other in a circle.",
+      },
+    ]);
+    expect((await addLink('WEB-3', 'blocked_by', 'API-4')).statusCode).toBe(422);
+    // A side branch that closes no loop is still fine.
+    await linkOk('WEB-3', 'blocks', 'API-4');
+  });
+
   it('allows two kinds between the same pair, across projects', async () => {
     await linkOk('WEB-1', 'blocks', 'API-1');
     await linkOk('WEB-1', 'relates_to', 'API-1');
@@ -185,6 +202,23 @@ describe('ticket links', () => {
     expect(response.statusCode, response.body).toBe(204);
     expect(await linksOf('WEB-1')).toEqual([]);
     expect(await linksOf('WEB-2')).toEqual([]);
+  });
+
+  it('keeps a link whose ticket is in an archived project', async () => {
+    const detail = await linkOk('WEB-1', 'blocks', 'API-4');
+    const archived = await ctx.app.inject({
+      method: 'PATCH',
+      url: `/api/v1/orgs/${f.acmeId}/projects/API`,
+      payload: { archived: true },
+      headers: { cookie: await ctx.cookieFor('owner') },
+    });
+    expect(archived.statusCode, archived.body).toBe(200);
+    const response = await removeLink('WEB-1', detail.links[0]!.id);
+    expect(response.statusCode).toBe(409);
+    expect(apiErrorSchema.parse(response.json()).error.message).toBe(
+      'API-4 is in an archived project.',
+    );
+    expect(await linksOf('WEB-1')).toEqual(['Blocks API-4']);
   });
 
   it('answers 404 for a link that does not touch the ticket in the address', async () => {

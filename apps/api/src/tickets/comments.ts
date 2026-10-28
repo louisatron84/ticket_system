@@ -20,7 +20,7 @@ import { and, asc, eq, inArray, notInArray } from 'drizzle-orm';
 import { commentWritten } from '../notifications/ticket-activity';
 import { clearMentions, syncMentions } from './content';
 import { AppError } from '../errors';
-import { archivedTicketError, type TicketContext } from './service';
+import { archivedTicketError, refuseIfProjectArchived, type TicketContext } from './service';
 
 const notFound = () => new AppError('not_found', 'Not found.', 404);
 
@@ -54,6 +54,7 @@ async function editableTicketIdOf(
     .for('share');
   if (!ticket) throw notFound();
   if (ticket.archivedAt) throw archivedTicketError();
+  await refuseIfProjectArchived(executor, ticket.id);
   return ticket.id;
 }
 

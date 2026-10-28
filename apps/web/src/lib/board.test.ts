@@ -24,7 +24,7 @@ const status = (
   key: string,
   name: string,
   category: 'not_started' | 'in_progress' | 'completed',
-): StatusRef => ({ id: uuid(n), key, name, category });
+): Workflow['statuses'][number] => ({ id: uuid(n), key, name, category, initial: false });
 
 // Project WEB has open, doing and done. Project API has its own open and a "qa" status WEB lacks.
 const OPEN = status(1, 'open', 'Open', 'not_started');
@@ -38,7 +38,7 @@ const API = { id: uuid(950), key: 'API' };
 
 const workflow = (
   project: { id: string; key: string },
-  statuses: StatusRef[],
+  statuses: Workflow['statuses'],
   moves: [StatusRef, StatusRef][],
   archived = false,
 ): Workflow => ({

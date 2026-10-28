@@ -51,6 +51,15 @@ const defaultIo: Io = {
   err: (line) => process.stderr.write(`${line}\n`),
 };
 
+// `forge inspect X | head -1` closes the pipe while we still write: that is the reader being
+// done, not an error worth a stack trace.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EPIPE') process.exit(OK);
+    throw error;
+  });
+}
+
 class UsageError extends Error {}
 
 /**
@@ -124,8 +133,15 @@ async function login(args: string[], io: Io): Promise<number> {
   return OK;
 }
 
+/** For commands that take nothing after their name: extra words are a mistake, not ignored. */
+function noWords(command: string, args: string[]) {
+  if (parse(command, args, {}).positional.length > 0) {
+    throw new UsageError(`forge ${command} takes no other words.`);
+  }
+}
+
 async function logout(args: string[], io: Io): Promise<number> {
-  parse('logout', args, {});
+  noWords('logout', args);
   const config = await readConfig();
   if (!config) {
     io.out('Not signed in.');
@@ -153,7 +169,8 @@ async function catalogue(args: string[], io: Io): Promise<number> {
     throw new UsageError('forge catalogue takes options only, e.g. forge cat --mine');
   }
   const limitText = parsed.options.get('--limit') ?? '25';
-  const limit = Number(limitText);
+  // Plain digits only: Number() would also take 1e1, 0x5 and ' 7 '.
+  const limit = /^[1-9][0-9]{0,2}$/.test(limitText) ? Number(limitText) : NaN;
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
     throw new UsageError('--limit must be a whole number from 1 to 100.');
   }
@@ -180,7 +197,10 @@ async function inspect(args: string[], io: Io): Promise<number> {
   const config = await signedIn();
   const ticket = await readTicket(config, key);
   if (parsed.flags.has('--json')) io.out(JSON.stringify(ticket, null, 2));
-  else for (const line of formatTicket(ticket, config.server, config.workspace.slug)) io.out(line);
+  else {
+    const web = config.webUrl ?? config.server;
+    for (const line of formatTicket(ticket, web, config.workspace.slug)) io.out(line);
+  }
   return OK;
 }
 
@@ -240,7 +260,7 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
     if (command === 'login') return await login(args, io);
     if (command === 'logout') return await logout(args, io);
     if (command === 'whoami') {
-      parse('whoami', args, {});
+      noWords('whoami', args);
       const config = await signedIn();
       const me = await whoAmI(config.server, config.token);
       io.out(

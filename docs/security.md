@@ -54,7 +54,11 @@ industry standard (the owner's choice; stronger measures are listed in
   stored only as hashes and expire after 10 minutes. The approval page needs a browser session,
   shows the code, machine name, address and time, and asks for a workspace and scope before Allow.
   A login is decided once. The token is made only when the command line collects it, exactly once,
-  so no token is ever stored waiting. Starting a login is limited to 10 per address per 10 minutes,
+  so no token is ever stored waiting. A login started from another address than the approver's is
+  flagged on the page and Allow needs an extra "I started this myself" (enforced by the API), since
+  that is what a phished link looks like. A role that can only read always gets a read-only token,
+  whatever was asked. Saved views cannot be changed with a token. Starting a login is limited to
+  10 per address per 10 minutes (and 500 waiting in all),
   polling to 60 a minute (and `slow_down` if faster than every 3 seconds), and code lookups and
   decisions to 5 a minute per person.
 - **On the machine**: the config (`~/.forge/config.json`, or `FORGE_CONFIG_DIR`) is written
@@ -83,7 +87,17 @@ industry standard (the owner's choice; stronger measures are listed in
 - `SameSite=Lax` stops browsers attaching the cookie to cross-site writes.
 - On top of that, any write (`POST`, `PATCH`, and so on) that carries an `Origin` header must name
   one of `WEB_ORIGIN` exactly (default `http://localhost:3000,http://127.0.0.1:3000`); otherwise `403`.
-  Requests with no `Origin` are non-browser clients and cannot be forged by a web page.
+  Requests with no `Origin` are non-browser clients and cannot be forged by a web page (such a
+  client could send our `Origin` just as easily, so requiring one would protect nothing). As a
+  second line, a write without `Origin` whose `Sec-Fetch-Site` says `cross-site` or `same-site` is
+  refused too.
+- **No framing.** Every web page sends `frame-ancestors 'none'` and `X-Frame-Options: DENY`, so the
+  CLI approval page (or any other) cannot be shown inside another site and clicked by trickery.
+  Pages also send `nosniff`, `Referrer-Policy: same-origin`, `Cross-Origin-Opener-Policy`, a
+  `Permissions-Policy` and, in production, HSTS. The API sends `default-src 'none'` on every
+  answer except the live notification stream, which writes its own headers.
+- **The session cookie is `Secure`** in production and whenever every `WEB_ORIGIN` is `https://`;
+  production refuses to start with a plain-HTTP origin other than this machine.
 - The browser reaches the API only through the web app's same-origin `/api` proxy, so there is no
   CORS configuration to get wrong.
 
@@ -150,13 +164,25 @@ Other rules the API enforces, each with a test that does not go through the page
   a component from another project, an assignee who is not a member, or a label from elsewhere is a
   `422` naming the field.
 - **Mass assignment is refused.** Request bodies are strict: an unknown field (`id`, `reporterId`,
-  `organisationId`, `key`, `statusId` on create) is a `422`, not silently ignored. The reporter is
-  always the signed-in person, and a new ticket always starts in its project's initial status.
+  `organisationId`, `key`) is a `422`, not silently ignored. The reporter is always the signed-in
+  person. A new ticket starts in its project's initial status unless its creator holds
+  `tickets.edit`: someone who may only create (a reporter) choosing any other status, Quenched
+  included, is a `403`.
+- **An archived project is frozen.** Editing, moving, archiving, commenting on, ticking criteria
+  of, attaching to, linking or triaging any of its tickets is a `409` until it is unarchived.
+- **Removing needs the permission that adding does.** Deleting a comment needs `tickets.comment`
+  (and being its author, or `tickets.edit`); removing an attachment needs `tickets.edit`. A person
+  whose role was lowered keeps nothing they could do before.
+- **Blocking loops of any length are refused**, under the workspace's structure lock.
 - **Stale edits are refused** with `409` by the `version` check, and two simultaneous edits are
   serialised by a row lock ([workflows](workflows.md#simultaneous-edits)).
 - **Bad input is refused before it reaches the database.** Titles are 1 to 200 characters, comments
   up to 10,000, descriptions up to 20,000; NUL and other control characters are rejected
-  (tabs and line breaks are allowed in descriptions and comments only); dates must exist; an
+  (tabs and line breaks are allowed in descriptions and comments only), and so are the C1 controls
+  (U+0080 to U+009F, which terminals read as escape codes) and the invisible characters that
+  reorder or hide text (bidirectional overrides and isolates, zero-width space, word joiner,
+  byte-order mark), so a title cannot show `gnp.exe` as `exe.png` in the browser or the `forge`
+  command; direction marks and emoji joiners stay allowed; dates must exist; an
   estimate is 0 to 99,999 minutes; a request can carry at most 20 labels; a filter value is
   validated like any other input. An over-long or malformed value is a `422`, never a `500`.
 - **Searching cannot be turned into a pattern.** `%`, `_` and `\` in the search text are escaped, so
@@ -192,8 +218,10 @@ Other rules the API enforces, each with a test that does not go through the page
 ## Development sign-in
 
 See [development accounts](development-accounts.md#why-it-cannot-reach-production). In short: it
-cannot start in production, the routes do not exist unless enabled, it accepts only seeded
-identity keys, and it refuses foreign `Host` / `Origin` values.
+it cannot start in production, the routes do not exist unless enabled, it accepts only seeded
+identity keys, it refuses foreign `Host` / `Origin` values, and it answers only connections whose
+socket comes from this machine (so an API bound to a network address does not hand sessions to
+anyone who sends `Host: localhost`).
 
 It is open to any program on the same machine: that is what makes it a development tool, and why
 real sign-in must replace it before Forge is reachable by anyone else. The most destructive part,
@@ -224,8 +252,8 @@ Denied ticket attempts (a `403` or `404`) are not recorded anywhere yet.
 - **No production sign-in method.** Only development sign-in exists. The session layer is ready for
   one; choosing and building it (email and password, GitHub OAuth, or another) is a product
   decision still to be made.
-- No rate limiting, lockout or abuse protection on any route (Stage 7).
-- No security response headers (CSP, HSTS and so on) from the web app (Stage 7).
+- Rate limiting only on the CLI sign-in routes; no lockout or abuse protection elsewhere (Stage 7).
+- No script policy (`script-src` with nonces) yet; the other security headers are sent (above).
 - No idle session timeout, session list or "sign out everywhere".
 - Tenant-isolation tests cover the entities that exist now (workspaces, members, roles,
   preferences, sessions, projects, tickets, comments, labels, components, saved views and the

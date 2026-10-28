@@ -1,3 +1,4 @@
+import { userPreferences } from '@forge/db';
 import { apiErrorSchema, preferencesSchema, viewerSchema } from '@forge/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { startIntegration, type Integration } from '../test-support/integration';
@@ -132,21 +133,27 @@ describe('board settings in /api/v1/me/preferences', () => {
     expect((await get(cookie)).json()).toEqual({ sidebarCollapsed: false, board: { heat: false } });
   });
 
-  it('keeps every one of several changes that arrive at the same moment', async () => {
-    for (let round = 0; round < 10; round += 1) {
-      await ctx.reseed();
+  // Each round starts from nothing saved. Only the settings are cleared, not the whole database:
+  // a full reseed per round is slow enough under load to time the test out mid-round.
+  it(
+    'keeps every one of several changes that arrive at the same moment',
+    { timeout: 30_000 },
+    async () => {
       const fresh = await ctx.cookieFor('owner');
-      const responses = await Promise.all([
-        patch(fresh, { board: { heat: false } }),
-        patch(fresh, { board: { density: 'compact' } }),
-        patch(fresh, { board: { fields: { comments: false } } }),
-      ]);
-      expect(responses.map((r) => r.statusCode)).toEqual([200, 200, 200]);
-      expect((await get(fresh)).json(), `round ${round}`).toEqual({
-        board: { heat: false, density: 'compact', fields: { comments: false } },
-      });
-    }
-  });
+      for (let round = 0; round < 10; round += 1) {
+        await ctx.db.delete(userPreferences);
+        const responses = await Promise.all([
+          patch(fresh, { board: { heat: false } }),
+          patch(fresh, { board: { density: 'compact' } }),
+          patch(fresh, { board: { fields: { comments: false } } }),
+        ]);
+        expect(responses.map((r) => r.statusCode)).toEqual([200, 200, 200]);
+        expect((await get(fresh)).json(), `round ${round}`).toEqual({
+          board: { heat: false, density: 'compact', fields: { comments: false } },
+        });
+      }
+    },
+  );
 
   it.each([
     ['an unknown key', { board: { colour: 'red' } }],
@@ -276,21 +283,25 @@ describe('board columns in /api/v1/me/preferences', () => {
     });
   });
 
-  it('keeps the choices for different projects that are saved at the same moment', async () => {
-    for (let round = 0; round < 10; round += 1) {
-      await ctx.reseed();
+  it(
+    'keeps the choices for different projects that are saved at the same moment',
+    { timeout: 30_000 },
+    async () => {
       const cookie = await ctx.cookieFor('owner');
-      const responses = await Promise.all([
-        patch(cookie, { boardColumns: { WEB: web } }),
-        patch(cookie, { boardColumns: { API: api } }),
-        patch(cookie, { boardColumns: { OPS: { hidden: ['blocked'], order: [] } } }),
-      ]);
-      expect(responses.map((r) => r.statusCode)).toEqual([200, 200, 200]);
-      expect((await get(cookie)).json(), `round ${round}`).toEqual({
-        boardColumns: { WEB: web, API: api, OPS: { hidden: ['blocked'], order: [] } },
-      });
-    }
-  });
+      for (let round = 0; round < 10; round += 1) {
+        await ctx.db.delete(userPreferences);
+        const responses = await Promise.all([
+          patch(cookie, { boardColumns: { WEB: web } }),
+          patch(cookie, { boardColumns: { API: api } }),
+          patch(cookie, { boardColumns: { OPS: { hidden: ['blocked'], order: [] } } }),
+        ]);
+        expect(responses.map((r) => r.statusCode)).toEqual([200, 200, 200]);
+        expect((await get(cookie)).json(), `round ${round}`).toEqual({
+          boardColumns: { WEB: web, API: api, OPS: { hidden: ['blocked'], order: [] } },
+        });
+      }
+    },
+  );
 
   it.each([
     ['a lower-case project key', { boardColumns: { web } }],
@@ -309,6 +320,39 @@ describe('board columns in /api/v1/me/preferences', () => {
     const response = await patch(cookie, payload);
     expect(response.statusCode).toBe(422);
     expect((await get(cookie)).json()).toEqual({ boardColumns: { WEB: web } });
+  });
+
+  it('refuses a change that would remember more than 100 projects in all', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    const batch = (from: number) =>
+      Object.fromEntries(
+        Array.from({ length: 60 }, (_, i) => [`K${from + i}`, { hidden: [], order: [] }]),
+      );
+    expect((await patch(cookie, { boardColumns: batch(0) })).statusCode).toBe(200);
+    const response = await patch(cookie, { boardColumns: batch(60) });
+    expect(response.statusCode).toBe(422);
+    // Nothing of the refused change was kept.
+    expect(Object.keys((await get(cookie)).json().boardColumns)).toHaveLength(60);
+    // Replacing remembered projects, or forgetting some, still works at the cap.
+    const forget = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`K${i}`, null]));
+    expect((await patch(cookie, { boardColumns: forget })).statusCode).toBe(200);
+    expect((await patch(cookie, { boardColumns: batch(60) })).statusCode).toBe(200);
+  });
+
+  it('still saves other settings for someone already over the cap from before it held', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    expect((await patch(cookie, { sidebarCollapsed: false })).statusCode).toBe(200);
+    const tooMany = Object.fromEntries(
+      Array.from({ length: 150 }, (_, i) => [`K${i}`, { hidden: [], order: [] }]),
+    );
+    await ctx.db
+      .update(userPreferences)
+      .set({ data: { sidebarCollapsed: false, boardColumns: tooMany } });
+    expect((await patch(cookie, { sidebarCollapsed: true })).statusCode).toBe(200);
+    expect((await patch(cookie, { boardColumns: { K0: null } })).statusCode).toBe(200);
+    expect(
+      (await patch(cookie, { boardColumns: { NEW: { hidden: [], order: [] } } })).statusCode,
+    ).toBe(422);
   });
 
   it('refuses more than 100 projects', async () => {

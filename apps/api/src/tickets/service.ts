@@ -57,6 +57,19 @@ export const inTriageError = (key: string) =>
 export const archivedTicketError = () =>
   new AppError('conflict', 'This ticket is archived. Unarchive it to change it.', 409);
 
+export const archivedProjectError = () =>
+  new AppError('conflict', 'This project is archived. Unarchive it to change its tickets.', 409);
+
+/** An archived project is frozen: none of its tickets, or anything on them, may change. */
+export async function refuseIfProjectArchived(executor: Executor, ticketId: string) {
+  const [row] = await executor
+    .select({ archivedAt: projects.archivedAt })
+    .from(tickets)
+    .innerJoin(projects, eq(projects.id, tickets.projectId))
+    .where(eq(tickets.id, ticketId));
+  if (row?.archivedAt) throw archivedProjectError();
+}
+
 export function invalid(issues: Issue[]): AppError {
   return new AppError(
     'validation_failed',
@@ -190,9 +203,11 @@ export async function createTicket(
 
       const issues = await findReferenceIssues(tx, context.organisationId, project.id, body);
       if (body.statusId !== undefined) {
-        // Any active status of this project may be chosen; the workflow governs moves, not creation.
+        // Editors may create in any active status (the workflow governs moves, not creation).
+        // Anyone else starts where the workflow starts: choosing a later status, Quenched
+        // included, would be a move they are not allowed to make.
         const [status] = await tx
-          .select({ id: projectStatuses.id })
+          .select({ id: projectStatuses.id, isInitial: projectStatuses.isInitial })
           .from(projectStatuses)
           .where(
             and(
@@ -203,6 +218,13 @@ export async function createTicket(
             ),
           );
         if (!status) issues.push({ path: 'statusId', message: 'Unknown status.' });
+        else if (!status.isInitial && !hasPermission(context.permissions, 'tickets.edit')) {
+          throw new AppError(
+            'forbidden',
+            "You can only create tickets in the project's first status.",
+            403,
+          );
+        }
       }
       if (issues.length > 0) throw invalid(issues);
 
@@ -267,6 +289,7 @@ export async function updateTicket(
         .for('update');
       if (!row) throw notFound();
       if (row.archivedAt) throw archivedTicketError();
+      await refuseIfProjectArchived(tx, row.id);
       if (row.triageState && body.statusId !== undefined && body.statusId !== row.statusId) {
         throw inTriageError(row.key);
       }
@@ -545,6 +568,7 @@ export async function setArchived(
       .where(and(eq(tickets.organisationId, context.organisationId), eq(tickets.key, ticketKey)))
       .for('update');
     if (!row) throw notFound();
+    await refuseIfProjectArchived(tx, row.id);
     if (row.triageState && archived) throw inTriageError(row.key);
 
     const now = new Date();

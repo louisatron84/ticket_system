@@ -16,4 +16,19 @@ describe('sessionCookieOptions', () => {
     expect(sessionCookieOptions({ nodeEnv: 'production', sessionTtlHours: 1 }).secure).toBe(true);
     expect(sessionCookieOptions({ nodeEnv: 'test', sessionTtlHours: 1 }).secure).toBe(false);
   });
+
+  it('is Secure whenever every web origin is HTTPS, whatever NODE_ENV says', () => {
+    const https = ['https://forge.example.com'];
+    expect(
+      sessionCookieOptions({ nodeEnv: 'development', sessionTtlHours: 1, webOrigins: https })
+        .secure,
+    ).toBe(true);
+    expect(
+      sessionCookieOptions({
+        nodeEnv: 'development',
+        sessionTtlHours: 1,
+        webOrigins: [...https, 'http://localhost:3000'],
+      }).secure,
+    ).toBe(false);
+  });
 });

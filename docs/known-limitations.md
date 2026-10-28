@@ -1,7 +1,8 @@
 # Known limitations
 
-Honest status at **Stage 2, Part A** (projects, tickets, comments, the list and the board). If it is
-not listed as working in the README, assume it does not exist yet.
+Honest status during **Stage 2, the ticket system**: phases P0 to P3 and P5 of the
+[ticket roadmap](superpowers/specs/2026-10-23-ticket-system-roadmap.md) are built; P4 and P6 to P8
+are not. If it is not listed as working in the README, assume it does not exist yet.
 
 ## Not built yet
 
@@ -9,13 +10,11 @@ not listed as working in the README, assume it does not exist yet.
   session layer is built so a real login method can be added, but which one (email and password,
   GitHub OAuth, magic link) is still to be decided and built. Until then the sign-in page says
   "Sign-in isn't configured for this environment yet" wherever development sign-in is off.
-- **Stage 2, Part B.** Not started: custom fields, attachments,
-  the administrator screens for editing statuses, transitions, ticket types and priorities, and
-  subscribing to a ticket. (Bulk edit, duplicate and archive arrived with P1; parents, links and
-  blockers with P2.) A ticket cannot be
-  deleted or moved to another project from the screens, and archiving a project exists in the API
-  only.
-- **GitHub integration, code review, workflows (automation), search, notifications and an audit
+- **Configuration (P4).** Not started: custom fields and the screens for editing statuses,
+  transitions, ticket types and priorities. A ticket cannot be deleted or moved to another project
+  from the screens, and archiving a project exists in the API only. An archived project is frozen:
+  its tickets can be read but nothing on them can change until it is unarchived.
+- **Forge's own repositories, code review, workflows (automation), full-text search and an audit
   viewer.** The sidebar lists only pages that exist; the rest are `planned` in
   `apps/web/src/lib/nav.ts` and not rendered.
 - **Invitations, removing members, creating workspaces, editing roles.** Members and their roles are
@@ -101,8 +100,9 @@ not listed as working in the README, assume it does not exist yet.
   would see a 200.
 - **Ticket changes are not in the audit trail.** They are in the ticket's own history. Denied ticket
   attempts are not recorded anywhere.
-- **No limits on counts.** Nothing caps projects, labels, components, comments or tickets per
-  workspace, and there is no rate limiting (Stage 7).
+- **Few limits on counts.** Nothing caps projects, labels, components, comments or tickets per
+  workspace, and only the CLI sign-in routes are rate limited (Stage 7). A person's board column
+  choices are capped at 100 projects in all.
 - **The board's drag and drop was not tested on a touch screen.** The "Move to" menu on each card
   is the touch-friendly route.
 - **`GET /favicon.ico` answers 404.** No icon is shipped yet; harmless but visible in the browser
@@ -125,8 +125,8 @@ not listed as working in the README, assume it does not exist yet.
 
 - **Formatting is a subset.** No tables, no images from outside addresses, no nested quotes deeper
   than three, list nesting one level deep. Raw HTML is never supported.
-- **Mentions notify nobody yet** (notifications are P5). The demo data's references were written
-  directly, so "mentioned in" appears only for references saved through the API.
+- **The demo data's references were written directly**, so "mentioned in" appears only for
+  references saved through the API.
 - **Attachments are on local disk** (`ATTACHMENTS_DIR`). There is no virus scanning, no image
   re-encoding (metadata such as location stays in a photo), and a failed removal can leave an
   orphaned file behind (never a row without its file).
@@ -142,8 +142,8 @@ not listed as working in the README, assume it does not exist yet.
   lane or list tree is not remembered after a reload. The list folds whole trees, not a middle level.
 - **Tree mode** arranges at most 2000 matching tickets per request; the total still counts all.
 - **No bulk "set parent" or bulk linking**, and no rolled-up estimates or due dates.
-- **Longer blocking loops** (A blocks B blocks C blocks A) are allowed; only A and B blocking each
-  other directly is refused.
+- **Blocking loops are refused** however long (A blocks B blocks C blocks A), with the way round
+  named in the message. Loops saved before this check existed are not cleaned up.
 
 ## Security gaps (see also [security](security.md))
 
@@ -155,13 +155,29 @@ not listed as working in the README, assume it does not exist yet.
   revoking a token automatically when the repository scanner finds it in code.
 - **Addresses come from the web proxy.** The API believes `X-Forwarded-For` only from a proxy on
   loopback (the web app), so addresses and the sign-in limits are per real caller. A program on the
-  API's own machine that calls it directly can still claim any address.
+  API's own machine that calls it directly can still claim any address, which buys it a fresh
+  per-address window for starting CLI sign-ins; at most 500 sign-ins can be waiting at once, so
+  such a caller can delay other people's `forge login` (until codes expire, 10 minutes) but not
+  grow anything without end. `forge login --token` still works meanwhile.
+- **Approving a CLI sign-in is the device flow**: whoever opens the link and approves gets the
+  token in their name. A sign-in started from another address than the approver's is flagged on
+  the page and needs an extra confirmation, but someone who is tricked into confirming still
+  hands over a token (as with GitHub's device flow).
+- **Development sign-in and reset** answer only connections from this machine (the socket's own
+  address, not a header) and never in production. Anyone on the machine can still become any seeded
+  person, which is the point of the switcher; reset is also off unless `FORGE_DEV_RESET=1` and never
+  runs on the `forge` database.
 - **Duplicating a ticket** copies its text but not its attachments, so images in the copy's
   description show as missing.
 - **Signing in again on the approval page** returns to the workspace, not to the approval page;
   open the link from the terminal again. Real sign-in (passwords, MFA) is still to come, and the
   CLI is only as trustworthy as the sign-in that approves it.
-- No security response headers such as CSP or HSTS from the web app (Stage 7).
+- **Security headers are partial.** Every page refuses framing (`frame-ancestors 'none'`,
+  `X-Frame-Options: DENY`), plugins, foreign `<base>` and form targets, sniffing and off-site
+  referrers, and production adds HSTS. There is no script policy (`script-src`) yet: Next.js needs a
+  per-request nonce for its own inline scripts, which is Stage 7. The API answers with
+  `default-src 'none'` on everything except the live notification stream, which writes its own
+  headers.
 - Sessions have an absolute lifetime only: no idle timeout, no list of sessions, no "sign out
   everywhere". Expired and revoked sessions stay in the `sessions` table; nothing purges them yet.
 - The audit trail is written (workspace rename, role changes including denied attempts, development

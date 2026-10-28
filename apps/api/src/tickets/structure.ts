@@ -102,6 +102,16 @@ export function assertWritable(ticket: LockedTicket) {
   }
 }
 
+/**
+ * Refuses a ticket whose project is archived. Taking a ticket out of a link with an archived
+ * ticket stays allowed (that only tidies up), but an archived project is frozen as a whole.
+ */
+function assertProjectOpen(ticket: LockedTicket) {
+  if (ticket.projectArchived) {
+    throw new AppError('conflict', `${ticket.key} is in an archived project.`, 409);
+  }
+}
+
 /** Keys from the ticket's parent up to the top, nearest first. */
 async function ancestorIds(tx: Executor, ticketId: string): Promise<string[]> {
   const result = await tx.execute<{ id: string }>(sql`
@@ -160,9 +170,10 @@ export async function setParent(
     if (parentKey && !parent) throw noSuchParent();
 
     if ((parent?.id ?? null) !== child.parentId) {
+      if (parent?.id === child.id) throw invalid('parentKey', "A ticket can't be its own parent.");
+      // Any change, clearing the parent included, changes the child.
+      assertWritable(child);
       if (parent) {
-        if (parent.id === child.id) throw invalid('parentKey', "A ticket can't be its own parent.");
-        assertWritable(child);
         assertWritable(parent);
         if (child.typeKey === 'epic') {
           throw invalid('parentKey', "An epic is always top level, so it can't have a parent.");
@@ -228,6 +239,41 @@ export async function setParent(
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * The keys of the tickets between `fromId` and `toId` along "blocks" links (from blocks the first,
+ * the last blocks to), or null when `fromId` does not block `toId` at all. Called under the
+ * structure lock, so the links cannot change while it looks.
+ */
+async function blockingPath(tx: Executor, fromId: string, toId: string): Promise<string[] | null> {
+  // Breadth first, each ticket visited once: one query per step outward, however the links
+  // branch and rejoin. (Following every route instead would explode on a chain of diamonds.)
+  const cameFrom = new Map<string, string>([[fromId, fromId]]);
+  let frontier = [fromId];
+  while (frontier.length > 0 && !cameFrom.has(toId)) {
+    const edges = await tx
+      .select({ from: ticketLinks.sourceTicketId, to: ticketLinks.targetTicketId })
+      .from(ticketLinks)
+      .where(and(eq(ticketLinks.kind, 'blocks'), inArray(ticketLinks.sourceTicketId, frontier)));
+    const next: string[] = [];
+    for (const edge of edges) {
+      if (cameFrom.has(edge.to)) continue;
+      cameFrom.set(edge.to, edge.from);
+      next.push(edge.to);
+    }
+    frontier = next;
+  }
+  if (!cameFrom.has(toId)) return null;
+  const between: string[] = [];
+  for (let at = cameFrom.get(toId)!; at !== fromId; at = cameFrom.get(at)!) between.unshift(at);
+  if (between.length === 0) return [];
+  const keys = await tx
+    .select({ id: tickets.id, key: tickets.key })
+    .from(tickets)
+    .where(inArray(tickets.id, between));
+  const keyOf = new Map(keys.map((row) => [row.id, row.key]));
+  return between.map((id) => keyOf.get(id) ?? '?');
+}
+
+/**
  * Links two tickets. What a person picks ("blocked by") is stored once in its forward direction
  * (`blocks`, from the blocker); `relates_to` is stored with the lower id as source so a pair has it
  * at most once. History goes on both tickets, each worded from its own side.
@@ -284,6 +330,17 @@ export async function addLink(
         `${source.key} is already blocked by ${target.key}, so it can't block it.`,
       );
     }
+    if (kind === 'blocks') {
+      // A longer loop is as stuck as a pair: if the new blocked ticket already blocks the
+      // blocker, however indirectly, none of them could ever be finished.
+      const loop = await blockingPath(tx, target.id, source.id);
+      if (loop) {
+        throw invalid(
+          'otherKey',
+          `${[target.key, ...loop, source.key].join(' blocks ')}, so ${source.key} can't block ${target.key}: they would wait on each other in a circle.`,
+        );
+      }
+    }
     if (kind === 'duplicates' && existing.length > 0) {
       throw invalid(
         'otherKey',
@@ -335,6 +392,9 @@ export async function removeLink(
       link.sourceKey,
       link.targetKey,
     ]);
+    // Taking a link away changes both tickets: neither may be in an archived project.
+    assertProjectOpen(locked.get(link.sourceKey)!);
+    assertProjectOpen(locked.get(link.targetKey)!);
     await tx.delete(ticketLinks).where(eq(ticketLinks.id, link.id));
     await recordLink(
       tx,

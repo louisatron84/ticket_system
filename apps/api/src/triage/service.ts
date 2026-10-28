@@ -35,7 +35,12 @@ import { AppError } from '../errors';
 import { autoWatch, notify, type NotificationDraft } from '../notifications/service';
 import { ticketUpdated } from '../notifications/ticket-activity';
 import { loadTicketSummaries } from '../tickets/read';
-import { findReferenceIssues, invalid, type TicketContext } from '../tickets/service';
+import {
+  findReferenceIssues,
+  invalid,
+  refuseIfProjectArchived,
+  type TicketContext,
+} from '../tickets/service';
 import { canonicalKey, markDuplicateIn } from '../tickets/structure';
 import { summarise } from './words';
 
@@ -75,6 +80,7 @@ async function lockTicket(tx: Executor, organisationId: string, key: string) {
     .where(and(eq(tickets.organisationId, organisationId), eq(tickets.key, key)))
     .for('update');
   if (!ticket) throw notFound();
+  await refuseIfProjectArchived(tx, ticket.id);
   return ticket as TriageTicket;
 }
 
@@ -722,36 +728,47 @@ export async function snooze(
 }
 
 /** Brings snoozed tickets whose day has come back to the queue, and tells their triagers. */
-export async function wakeSnoozed(db: Db, now = new Date()): Promise<void> {
+export async function wakeSnoozed(
+  db: Db,
+  now = new Date(),
+  onError?: (message: string, error: unknown) => void,
+): Promise<void> {
+  // Archived tickets and archived projects are frozen: they stay snoozed until unarchived.
   const due = await db
     .select({ key: tickets.key, organisationId: tickets.organisationId })
     .from(tickets)
+    .innerJoin(projects, eq(projects.id, tickets.projectId))
     .where(
       and(
         eq(tickets.triageState, 'snoozed'),
         isNotNull(tickets.triageSnoozedUntil),
         lte(tickets.triageSnoozedUntil, now),
+        isNull(tickets.archivedAt),
+        isNull(projects.archivedAt),
       ),
     );
   for (const row of due) {
-    await db.transaction(async (tx) => {
-      const ticket = await lockTicket(tx, row.organisationId, row.key);
-      if (ticket.triageState !== 'snoozed') return;
-      await tx
-        .update(tickets)
-        .set({ triageState: 'waiting', triageSnoozedUntil: null })
-        .where(eq(tickets.id, ticket.id));
-      await recorder(
-        tx,
-        row.organisationId,
-        ticket.id,
-        null,
-      )({
-        type: 'triage.entered',
-        data: { reason: 'woke' },
-      });
-      await announceArrival(tx, row.organisationId, null, ticket, null, 'is back in');
-    });
+    // One ticket that fails (archived in the meantime, say) never stops the others waking.
+    await db
+      .transaction(async (tx) => {
+        const ticket = await lockTicket(tx, row.organisationId, row.key);
+        if (ticket.triageState !== 'snoozed') return;
+        await tx
+          .update(tickets)
+          .set({ triageState: 'waiting', triageSnoozedUntil: null })
+          .where(eq(tickets.id, ticket.id));
+        await recorder(
+          tx,
+          row.organisationId,
+          ticket.id,
+          null,
+        )({
+          type: 'triage.entered',
+          data: { reason: 'woke' },
+        });
+        await announceArrival(tx, row.organisationId, null, ticket, null, 'is back in');
+      })
+      .catch((error: unknown) => onError?.(`waking ${row.key} from snooze failed`, error));
   }
 }
 

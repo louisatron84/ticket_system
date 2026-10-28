@@ -75,7 +75,9 @@ export function startJobs(db: Db, log: (message: string, error: unknown) => void
   const run = async () => {
     // Each job on its own, so one failing never stops the other.
     await remindDueDates(db, new Date(), log).catch((error) => log('due reminders failed', error));
-    await wakeSnoozed(db).catch((error) => log('waking snoozed triage failed', error));
+    await wakeSnoozed(db, new Date(), log).catch((error) =>
+      log('waking snoozed triage failed', error),
+    );
   };
   void run();
   const timer = setInterval(() => void run(), HOUR_MS);

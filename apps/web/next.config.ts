@@ -25,6 +25,31 @@ const config: NextConfig = {
   // End-to-end tests build into their own folder so they can run beside a normal dev server.
   distDir: process.env.NEXT_DIST_DIR ?? '.next',
 
+  // Every page: never framed by another site (the CLI approval page is the one that matters most,
+  // since a framed Approve button could be clicked by trickery), no plugins, no foreign <base> or
+  // form targets, and no referrer leaving this site (a CLI login code sits in the approval URL).
+  // A full script policy needs per-request nonces for Next's own inline scripts; see
+  // docs/known-limitations.md.
+  async headers() {
+    const always = [
+      {
+        key: 'Content-Security-Policy',
+        value: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'",
+      },
+      { key: 'X-Frame-Options', value: 'DENY' },
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      { key: 'Referrer-Policy', value: 'same-origin' },
+      { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+      { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+    ];
+    // Browsers ignore HSTS over plain HTTP, and localhost must stay reachable without TLS.
+    const production =
+      process.env.NODE_ENV === 'production'
+        ? [{ key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' }]
+        : [];
+    return [{ source: '/:path*', headers: [...always, ...production] }];
+  },
+
   // The browser talks to the API only through this same-origin proxy, so the session cookie is
   // first-party and never needs CORS. Server components call the API directly instead.
   async rewrites() {

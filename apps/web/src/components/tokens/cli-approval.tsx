@@ -24,6 +24,7 @@ export function CliApproval({
   const [request, setRequest] = useState<CliLoginRequest | null>(null);
   const [workspaceId, setWorkspaceId] = useState(workspaces[0]?.id ?? '');
   const [scope, setScope] = useState<TokenScope>('write');
+  const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<'allowed' | 'denied' | null>(null);
@@ -60,7 +61,13 @@ export function CliApproval({
         method: 'POST',
         json:
           decision === 'allow'
-            ? { decision, userCode: request.userCode, organisationId: workspaceId, scope }
+            ? {
+                decision,
+                userCode: request.userCode,
+                organisationId: workspaceId,
+                scope,
+                ...(request.fromYourAddress ? {} : { differentAddressConfirmed: confirmed }),
+              }
             : { decision, userCode: request.userCode },
       });
       setOutcome(decision === 'allow' ? 'allowed' : 'denied');
@@ -131,6 +138,24 @@ export function CliApproval({
           <dd>{new Date(request.requestedAt).toLocaleTimeString()}</dd>
         </dl>
       </div>
+      {!request.fromYourAddress && (
+        <div role="alert" className="rounded-md border border-fail/50 bg-fail/10 p-4 text-[13px]">
+          <p className="mb-2 font-medium">This sign-in came from a different address than yours.</p>
+          <p className="mb-3">
+            That is normal only if you ran <code className="font-mono">forge login</code> on another
+            computer or network yourself. If someone sent you this link, choose Deny: allowing it
+            would give them a token in your name.
+          </p>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(event) => setConfirmed(event.target.checked)}
+            />
+            I started this sign-in myself
+          </label>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <FormField id="cli-workspace" label="Workspace">
           <select
@@ -172,7 +197,7 @@ export function CliApproval({
         <button
           type="button"
           className={buttonClass('primary')}
-          disabled={busy}
+          disabled={busy || (!request.fromYourAddress && !confirmed)}
           onClick={() => void decide('allow')}
         >
           Allow

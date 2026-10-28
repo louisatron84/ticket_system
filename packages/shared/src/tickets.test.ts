@@ -396,15 +396,38 @@ describe('commentBodySchema and createLabelBodySchema', () => {
 describe('control characters', () => {
   const at = (code: number) => `a${String.fromCharCode(code)}b`;
 
-  it.each([0x00, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x1f, 0x7f])(
+  it.each([0x00, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x1f, 0x7f, 0x80, 0x9b, 0x9f])(
     'finds 0x%s in text',
     (code) => {
       expect(hasControlCharacter(at(code))).toBe(true);
     },
   );
 
-  it.each([0x20, 0x7e, 0x80, 0xa0, 0x2028])('leaves 0x%s alone', (code) => {
+  it.each([0x20, 0x7e, 0xa0, 0x2028])('leaves 0x%s alone', (code) => {
     expect(hasControlCharacter(at(code))).toBe(false);
+  });
+
+  it.each([
+    0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069, 0x200b, 0x2060, 0xfeff,
+  ])('finds the invisible formatting character 0x%s', (code) => {
+    expect(hasControlCharacter(at(code))).toBe(true);
+  });
+
+  it('refuses a title that hides a reversed file name', () => {
+    expect(
+      createTicketBodySchema.safeParse({
+        ...validTicket,
+        title: `Fix login ${String.fromCharCode(0x202e)}gnp.exe`,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('keeps the direction marks and the emoji joiners that real text needs', () => {
+    // LRM, RLM, ALM, ZWNJ and ZWJ (the last one inside a family emoji).
+    for (const code of [0x200e, 0x200f, 0x061c, 0x200c, 0x200d]) {
+      expect(hasControlCharacter(at(code))).toBe(false);
+    }
+    expect(hasControlCharacter('👨‍👩‍👧')).toBe(false);
   });
 
   it('lets the caller allow some, and only those', () => {

@@ -91,14 +91,23 @@ export function registerTokenRoutes(
     { preHandler: requireUser },
     async (request): Promise<CliLoginRequest> => {
       guesses.hit(`code:${request.auth!.user.id}`);
-      return lookupLogin(db, parseBody(cliLoginLookupBodySchema, request.body).userCode);
+      return lookupLogin(
+        db,
+        parseBody(cliLoginLookupBodySchema, request.body).userCode,
+        request.ip,
+      );
     },
   );
 
   app.post('/api/v1/cli/login/decision', { preHandler: requireUser }, async (request, reply) => {
     guesses.hit(`code:${request.auth!.user.id}`);
     const body = parseBody(cliLoginDecisionBodySchema, request.body);
-    await decideLogin(db, { ...body, userId: request.auth!.user.id });
+    await decideLogin(
+      db,
+      body.decision === 'allow'
+        ? { ...body, userId: request.auth!.user.id, viewerIp: request.ip }
+        : { ...body, userId: request.auth!.user.id },
+    );
     reply.status(204).send();
   });
 
@@ -121,6 +130,7 @@ export function registerTokenRoutes(
         workspace: workspace!,
         scope: token.scope,
         expiresAt: details.expiresAt,
+        webUrl: config.webOrigins[0]!,
       };
     },
   );
