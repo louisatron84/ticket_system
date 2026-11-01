@@ -2,9 +2,12 @@
 
 import type { Member, Priority, TicketSummary } from '@forge/shared';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { needsComment } from '@/lib/board';
 import { updateTicket } from '@/lib/ticket-actions';
 import { ActionMenu, useActionMenu } from './action-menu';
 import { PriorityMark, StatusBadge } from './badges';
+import { MoveCommentDialog, type CommentedMove } from './move-comment-dialog';
 import { AssigneeChoices, PriorityChoices, StatusChoices, type MoveTarget } from './ticket-choices';
 import { useTicketActions } from './use-ticket-actions';
 import { UserChip } from './user-chip';
@@ -40,20 +43,46 @@ function useCell({ ticket, organisationId, slug }: CellProps, field: string) {
 export function StatusCell({ targets, ...props }: CellProps & { targets: MoveTarget[] }) {
   const { ticket } = props;
   const cell = useCell(props, 'status');
+  const [commented, setCommented] = useState<CommentedMove | null>(null);
   return (
-    <ActionMenu
-      menu={cell.menu}
-      label={`Change status of ${ticket.key}`}
-      appearance="value"
-      icon={<StatusBadge status={ticket.status} />}
-      disabled={cell.busy}
-    >
-      <StatusChoices
-        ticketKey={ticket.key}
-        targets={targets}
-        onPick={(statusId) => void cell.save(`Could not move ${ticket.key}.`, { statusId })}
+    <>
+      <ActionMenu
+        menu={cell.menu}
+        label={`Change status of ${ticket.key}`}
+        appearance="value"
+        icon={<StatusBadge status={ticket.status} />}
+        disabled={cell.busy}
+      >
+        <StatusChoices
+          ticketKey={ticket.key}
+          targets={targets}
+          onPick={(statusId) => {
+            const target = targets.find((status) => status.id === statusId);
+            // A move that needs a comment asks for it first; the two are sent together.
+            if (target && needsComment(target)) {
+              cell.menu.close();
+              setCommented({ ticketKey: ticket.key, statusId, statusName: target.name });
+            } else {
+              void cell.save(`Could not move ${ticket.key}.`, { statusId });
+            }
+          }}
+        />
+      </ActionMenu>
+      <MoveCommentDialog
+        move={commented}
+        busy={cell.busy}
+        onCancel={() => {
+          setCommented(null);
+          cell.menu.restoreFocus();
+        }}
+        onSubmit={(comment) => {
+          if (!commented) return;
+          const { statusId } = commented;
+          setCommented(null);
+          void cell.save(`Could not move ${ticket.key}.`, { statusId, comment });
+        }}
       />
-    </ActionMenu>
+    </>
   );
 }
 

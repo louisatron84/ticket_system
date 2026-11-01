@@ -12,6 +12,7 @@ import {
   boardColumnPrefsSchema,
   boardDisplaySchema,
   resolveBoardDisplay,
+  toggleCardCustomField,
   undoOf,
 } from './board-display';
 
@@ -48,6 +49,7 @@ describe('board display', () => {
       heat: true,
       show: 'all',
       lanes: 'none',
+      customFields: [],
     });
   });
 
@@ -217,5 +219,41 @@ describe('column preferences', () => {
     expect(preferencesSchema.safeParse({ boardColumns: many }).success).toBe(false);
     const fine = Object.fromEntries(Object.entries(many).slice(0, 100));
     expect(preferencesSchema.safeParse({ boardColumns: fine }).success).toBe(true);
+  });
+});
+
+describe('custom fields on cards', () => {
+  const a = '01a1656b-1a49-7146-94ac-1c72df43ddb4';
+  const b = '01a1656b-1a49-7146-94ac-1c72df43ddb5';
+
+  it('shows none by default, and remembers the ones switched on', () => {
+    expect(resolveBoardDisplay({}).customFields).toEqual([]);
+    expect(resolveBoardDisplay({ customFields: [a] }).customFields).toEqual([a]);
+  });
+
+  it('toggles one field at a time, keeping the others', () => {
+    const on = applyDisplayChange(DEFAULT_BOARD_DISPLAY, {
+      customFields: toggleCardCustomField(DEFAULT_BOARD_DISPLAY, a),
+    });
+    expect(on.customFields).toEqual([a]);
+    const both = toggleCardCustomField(on, b);
+    expect(both).toEqual([a, b]);
+    expect(toggleCardCustomField({ ...on, customFields: both }, a)).toEqual([b]);
+  });
+
+  it('undoes only the custom field change', () => {
+    const before = resolveBoardDisplay({ customFields: [a], density: 'compact' });
+    expect(undoOf(before, { customFields: [a, b] })).toEqual({ customFields: [a] });
+  });
+
+  it.each([
+    ['an id that is not a uuid', ['nope']],
+    ['the same field twice', [a, a]],
+    [
+      'more than ten fields',
+      Array.from({ length: 11 }, (_, i) => a.slice(0, -2) + `${i}`.padStart(2, '0')),
+    ],
+  ])('refuses %s', (_name, customFields) => {
+    expect(boardDisplaySchema.safeParse({ customFields }).success).toBe(false);
   });
 });

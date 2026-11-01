@@ -38,6 +38,7 @@ import {
   fitsLane,
   isMovable,
   lanesOf,
+  needsComment,
   parseDropId,
   topLevelOnly,
   type BoardColumnData,
@@ -47,6 +48,7 @@ import {
 import { arrangeColumns } from '@/lib/board-columns';
 import { defaultTypeAndPriority } from '@/lib/ticket-actions';
 import { hrefFor } from '@/lib/ticket-query';
+import { MoveCommentDialog } from '@/components/tickets/move-comment-dialog';
 import { CardOverlay, DraggableCard } from './card';
 import { BoardColumn, type DropState } from './column';
 import { useBoardPrefs } from './prefs-provider';
@@ -147,6 +149,13 @@ export function Board({
   const { display, columnPrefs } = useBoardPrefs();
   const [state, dispatch] = useReducer(boardReducer, { board: initial, pending: null });
   const [activeId, setActiveId] = useState<string | null>(null);
+  // A move waiting for the comment its transition needs.
+  const [commented, setCommented] = useState<{
+    ticket: TicketSummary;
+    toKey: string;
+    name: string;
+    statusId: string;
+  } | null>(null);
 
   // A fresh board from the server (after a refresh) replaces what is on screen.
   const [seenInitial, setSeenInitial] = useState(initial);
@@ -190,24 +199,43 @@ export function Board({
     return canMoveTo(workflows, active, key) ? 'accepts' : 'refuses';
   };
 
-  async function move(ticket: TicketSummary, toKey: string) {
+  /** `comment` is what the person wrote for a move that needs one. */
+  async function move(ticket: TicketSummary, toKey: string, comment?: string) {
     if (!canMove || state.pending) return;
     // Dropped back where it came from: nothing to do, nothing to say.
     if (toKey === ticket.status.key) return;
-    const target: StatusRef | null = canMoveTo(workflows, ticket, toKey);
-    if (!target) {
+    const option = canMoveTo(workflows, ticket, toKey);
+    if (!option) {
       const allowed = allowedStatuses(workflows, ticket).map((status) => status.name);
       toast.error(
         `${ticket.key} cannot move from ${ticket.status.name} to ${statusName(toKey)}. ${allowedMovesSentence(ticket.status.name, allowed)}`,
       );
       return;
     }
+    // A move that needs a comment waits for it: the card stays put until the comment is given.
+    if (needsComment(option) && comment === undefined) {
+      setCommented({ ticket, toKey, name: option.name, statusId: option.id });
+      return;
+    }
+    const target: StatusRef = {
+      id: option.id,
+      key: option.key,
+      name: option.name,
+      category: option.category,
+    };
 
     dispatch({ type: 'moved', ticketId: ticket.id, toKey, status: target });
     try {
       const saved = await apiFetch<TicketDetail>(
         `/api/v1/orgs/${organisationId}/tickets/${ticket.key}`,
-        { method: 'PATCH', json: { version: ticket.version, statusId: target.id } },
+        {
+          method: 'PATCH',
+          json: {
+            version: ticket.version,
+            statusId: target.id,
+            ...(comment !== undefined ? { comment } : {}),
+          },
+        },
       );
       dispatch({ type: 'saved', ticketId: ticket.id, version: saved.version });
       if (!shownKeys.has(toKey)) {
@@ -356,6 +384,7 @@ export function Board({
               maxRank={maxRank}
               fields={display.fields}
               density={display.density}
+              customFields={display.customFields}
               canMove={canMove && movable}
               targets={targets}
               actions={{
@@ -474,6 +503,24 @@ export function Board({
         )}
       </div>
 
+      <MoveCommentDialog
+        move={
+          commented
+            ? {
+                ticketKey: commented.ticket.key,
+                statusId: commented.statusId,
+                statusName: commented.name,
+              }
+            : null
+        }
+        onCancel={() => setCommented(null)}
+        onSubmit={(comment) => {
+          if (!commented) return;
+          setCommented(null);
+          void move(commented.ticket, commented.toKey, comment);
+        }}
+      />
+
       <DragOverlay dropAnimation={null}>
         {active ? (
           <CardOverlay
@@ -483,6 +530,7 @@ export function Board({
             maxRank={maxRank}
             fields={display.fields}
             density={display.density}
+            customFields={display.customFields}
           />
         ) : null}
       </DragOverlay>

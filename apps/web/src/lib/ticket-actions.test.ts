@@ -47,8 +47,20 @@ describe('bulkSummary', () => {
 });
 
 describe('defaultTypeAndPriority', () => {
-  const type = (key: string) => ({ id: `type-${key}`, key, name: key });
-  const priority = (key: string, rank: number) => ({ id: `prio-${key}`, key, name: key, rank });
+  const type = (key: string, active = true) => ({
+    id: `type-${key}`,
+    key,
+    name: key,
+    sortOrder: 0,
+    active,
+  });
+  const priority = (key: string, rank: number, active = true) => ({
+    id: `prio-${key}`,
+    key,
+    name: key,
+    rank,
+    active,
+  });
   const config = (types: TicketConfig['types'], priorities: TicketConfig['priorities']) =>
     ({ types, priorities, labels: [], components: [] }) as TicketConfig;
 

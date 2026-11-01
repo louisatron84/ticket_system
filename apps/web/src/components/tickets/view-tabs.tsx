@@ -1,6 +1,16 @@
 'use client';
 
-import { Columns3, Filter, List, Settings } from 'lucide-react';
+import {
+  ChartColumn,
+  Columns3,
+  Filter,
+  Flag,
+  GanttChart,
+  List,
+  ListOrdered,
+  Settings,
+  Timer,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 
@@ -13,6 +23,11 @@ export function ViewTabs({
   label,
   boardHref,
   listHref,
+  backlogHref,
+  milestonesHref,
+  cyclesHref,
+  timelineHref,
+  reportsHref,
   settingsHref,
   triage,
 }: {
@@ -20,6 +35,16 @@ export function ViewTabs({
   label: string;
   boardHref: string;
   listHref: string;
+  /** A project's ranked backlog. */
+  backlogHref?: string;
+  /** A project's milestones. */
+  milestonesHref?: string;
+  /** A project's cycles, where they are switched on. */
+  cyclesHref?: string;
+  /** A project's epics and milestones on the calendar. */
+  timelineHref?: string;
+  /** A project's reports. */
+  reportsHref?: string;
   /** A project's settings, for people who may manage projects. */
   settingsHref?: string;
   /** The project's triage queue, where triage is on. */
@@ -30,6 +55,11 @@ export function ViewTabs({
   const tabs = [
     { label: 'Board', path: boardHref, icon: Columns3 },
     { label: 'List', path: listHref, icon: List },
+    ...(backlogHref ? [{ label: 'Backlog', path: backlogHref, icon: ListOrdered }] : []),
+    ...(cyclesHref ? [{ label: 'Cycles', path: cyclesHref, icon: Timer }] : []),
+    ...(milestonesHref ? [{ label: 'Milestones', path: milestonesHref, icon: Flag }] : []),
+    ...(timelineHref ? [{ label: 'Timeline', path: timelineHref, icon: GanttChart }] : []),
+    ...(reportsHref ? [{ label: 'Reports', path: reportsHref, icon: ChartColumn }] : []),
     ...(triage
       ? [
           {

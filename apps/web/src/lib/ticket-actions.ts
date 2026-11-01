@@ -2,12 +2,13 @@
 // all copy, duplicate and archive the same way and word the result the same way. The pure helpers
 // come first; the few calls that touch the browser or the network are at the end.
 
-import type {
-  BulkTicketBody,
-  BulkTicketResult,
-  LinkChoice,
-  TicketConfig,
-  TicketDetail,
+import {
+  offeredChoices,
+  type BulkTicketBody,
+  type BulkTicketResult,
+  type LinkChoice,
+  type TicketConfig,
+  type TicketDetail,
 } from '@forge/shared';
 import { apiFetch } from './api-client';
 import { workspaceHref } from './nav';
@@ -47,8 +48,10 @@ export function defaultTypeAndPriority(config: TicketConfig): {
   typeId: string;
   priorityId: string;
 } {
-  const type = config.types.find((item) => item.key === 'task') ?? config.types[0];
-  const byRank = [...config.priorities].sort((a, b) => a.rank - b.rank);
+  // Only what is still in use: a new ticket cannot have an inactive type or priority.
+  const types = offeredChoices(config.types);
+  const type = types.find((item) => item.key === 'task') ?? types[0];
+  const byRank = offeredChoices(config.priorities).sort((a, b) => a.rank - b.rank);
   const priority =
     byRank.find((item) => item.key === 'normal') ?? byRank[Math.floor((byRank.length - 1) / 2)];
   return { typeId: type?.id ?? '', priorityId: priority?.id ?? '' };
@@ -68,7 +71,11 @@ export const updateTicket = (
   organisationId: string,
   key: string,
   version: number,
-  fields: { priorityId: string } | { assigneeId: string | null } | { statusId: string },
+  fields:
+    | { priorityId: string }
+    | { assigneeId: string | null }
+    // A move may carry a comment, which a transition can require.
+    | { statusId: string; comment?: string },
 ) =>
   apiFetch<TicketDetail>(ticketPath(organisationId, key), {
     method: 'PATCH',

@@ -13,7 +13,8 @@ export type FilterField =
   | 'priority'
   | 'assignee'
   | 'reporter'
-  | 'label';
+  | 'label'
+  | 'cf';
 
 const KNOWN_PARAMETERS = [
   'q',
@@ -25,6 +26,10 @@ const KNOWN_PARAMETERS = [
   'assignee',
   'reporter',
   'label',
+  'milestone',
+  'cycle',
+  'cf',
+  'sortField',
   'due',
   'archived',
   'sort',
@@ -110,7 +115,8 @@ export function hasActiveFilters(
     filters.label.length > 0 ||
     filters.due !== undefined ||
     filters.archived ||
-    structureChips(filters).length > 0
+    structureChips(filters).length > 0 ||
+    queryChips(filters).length > 0
   );
 }
 
@@ -121,7 +127,23 @@ export function hasActiveFilters(
 export function structureChips(
   filters: TicketFilters,
 ): { key: string; text: string; remove: Partial<TicketFilters> }[] {
+  const milestones = filters.milestone.filter((id) => id !== 'none').length;
+  const milestoneText = [
+    ...(filters.milestone.includes('none') ? ['none'] : []),
+    ...(milestones > 0 ? [milestones === 1 ? 'a chosen one' : `${milestones} chosen`] : []),
+  ].join(' or ');
+  const cycles = filters.cycle.filter((id) => id !== 'none').length;
+  const cycleText = [
+    ...(filters.cycle.includes('none') ? ['none'] : []),
+    ...(cycles > 0 ? [cycles === 1 ? 'a chosen one' : `${cycles} chosen`] : []),
+  ].join(' or ');
   return [
+    ...(filters.cycle.length > 0
+      ? [{ key: 'cycle', text: `Cycle: ${cycleText}`, remove: { cycle: [] } }]
+      : []),
+    ...(filters.milestone.length > 0
+      ? [{ key: 'milestone', text: `Milestone: ${milestoneText}`, remove: { milestone: [] } }]
+      : []),
     ...(filters.parent
       ? [{ key: 'parent', text: `Parent: ${filters.parent}`, remove: { parent: undefined } }]
       : []),
@@ -144,6 +166,57 @@ export function structureChips(
   ];
 }
 
+/**
+ * Filters a typed query can set that have no menu of their own: an exact status, watching, and
+ * when tickets changed or were made. Each carries the change that removes it.
+ */
+export function queryChips(
+  filters: TicketFilters,
+): { key: string; text: string; remove: Partial<TicketFilters> }[] {
+  return [
+    ...(filters.statusKey.length > 0
+      ? [
+          {
+            key: 'statusKey',
+            text: `Status: ${filters.statusKey.join(' or ')}`,
+            remove: { statusKey: [] },
+          },
+        ]
+      : []),
+    ...(filters.watching
+      ? [{ key: 'watching', text: 'Watching', remove: { watching: false } }]
+      : []),
+    ...(
+      [
+        ['updatedFrom', 'Changed since'],
+        ['updatedBefore', 'Changed before'],
+        ['createdFrom', 'Made since'],
+        ['createdBefore', 'Made before'],
+      ] as const
+    ).flatMap(([field, words]) => {
+      const spec = filters[field];
+      return spec
+        ? [
+            {
+              key: field,
+              text: `${words} ${describeDateSpec(spec)}`,
+              remove: { [field]: undefined },
+            },
+          ]
+        : [];
+    }),
+  ];
+}
+
+/** A date filter in words: "7 days ago", "2 weeks ago", or the date itself. */
+export function describeDateSpec(spec: string): string {
+  const relative = /^-(\d+)([dw])$/.exec(spec);
+  if (!relative) return spec;
+  const amount = Number(relative[1]);
+  const unit = relative[2] === 'w' ? 'week' : 'day';
+  return `${amount} ${unit}${amount === 1 ? '' : 's'} ago`;
+}
+
 /** Newest and most urgent first; soonest due and lowest key first. */
 const NATURAL_DIRECTION: Record<TicketFilters['sort'], TicketFilters['dir']> = {
   updated: 'desc',
@@ -151,6 +224,7 @@ const NATURAL_DIRECTION: Record<TicketFilters['sort'], TicketFilters['dir']> = {
   priority: 'desc',
   due: 'asc',
   key: 'asc',
+  rank: 'asc',
 };
 
 /** Choosing the column already sorted by flips its direction; a new column starts its natural way. */

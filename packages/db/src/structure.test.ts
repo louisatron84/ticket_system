@@ -87,6 +87,7 @@ async function workspace(slug: string) {
         statusId: status!.id,
         priorityId: priority!.id,
         reporterId: user!.id,
+        rank: `a${number}`,
       })),
     )
     .returning();

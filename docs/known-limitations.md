@@ -1,18 +1,39 @@
 # Known limitations
 
-Honest status during **Stage 2, the ticket system**: phases P0 to P3 and P5 of the
-[ticket roadmap](superpowers/specs/2026-10-23-ticket-system-roadmap.md) are built; P4 and P6 to P8
-are not. If it is not listed as working in the README, assume it does not exist yet.
+Honest status during **Stage 2, the ticket system**: phases P0 to P5 of the
+[ticket roadmap](superpowers/specs/2026-10-23-ticket-system-roadmap.md) and P6 are built, P7 in part
+(the query language); P8 is not. If it is not listed as working in the README,
+assume it does not exist yet.
 
 ## Not built yet
+
+- **The rest of P7.** Full-text search (the text part of a query still matches a key prefix or the
+  title only), group by, the table view, CSV import and export, and cursor paging. The query
+  language picks tickets in only: there is no excluding (`-label:bug`), no OR across different
+  filters and no brackets. Labels asked for must all be on a ticket; other repeated values are
+  alternatives. Custom fields cannot be named in a query (their menu still works). The command
+  menu does not take queries yet. `updated:>` means on or after; there is no `>=` difference.
+  On a project's own pages a `project:` term is ignored, as the project filter is there.
+- **Limits of P6, planning.** The timeline is read-only (dates are set on the ticket and the
+  milestone), shows epics only, at most 200, and the create form has no start date field. The burndown uses each ticket's current estimate
+  and completion time, so a ticket reopened later no longer counts as done on the days it was. The backlog shows at most 500 tickets (it says
+  how many there are in all); the board does not order its cards by backlog rank; the ticket list
+  can be sorted by rank only through the address (`?sort=rank`); the list's milestone chip does
+  not name the milestone.
+- **Reports are worked out on every visit**, from tickets and their status history, over UTC days.
+  Archived tickets and tickets still waiting in triage are left out entirely, and scrapped ones are
+  not counted; a ticket archived later disappears from past days too. A ticket counts as done from
+  its latest completion, so one reopened and finished again is counted once, on the later day.
+  Cycle time starts at the first move into any in-progress status, Jammed included, and tickets
+  that went straight to done have none. Ranges are 30 or 90 days only; there are no workspace-wide
+  or per-person reports, and nothing exports.
 
 - **Any way to sign in outside development.** Only the development account switcher exists. The
   session layer is built so a real login method can be added, but which one (email and password,
   GitHub OAuth, magic link) is still to be decided and built. Until then the sign-in page says
   "Sign-in isn't configured for this environment yet" wherever development sign-in is off.
-- **Configuration (P4).** Not started: custom fields and the screens for editing statuses,
-  transitions, ticket types and priorities. A ticket cannot be deleted or moved to another project
-  from the screens, and archiving a project exists in the API only. An archived project is frozen:
+- **Moving or deleting tickets.** A ticket cannot be deleted or moved to another project from the
+  screens, and archiving a project exists in the API only. An archived project is frozen:
   its tickets can be read but nothing on them can change until it is unarchived.
 - **Forge's own repositories, code review, workflows (automation), full-text search and an audit
   viewer.** The sidebar lists only pages that exist; the rest are `planned` in
@@ -32,7 +53,7 @@ are not. If it is not listed as working in the README, assume it does not exist 
   statuses. It was designed as an optional last step (see the board design) and is waiting for the
   owner's go-ahead.
 - **Settings for a project are limited to 20 statuses.** A project with more than 20 statuses
-  (possible only once Part B lets projects add them) cannot save a column choice; the save is
+  (possible since P4 lets projects add them) cannot save a column choice; the save is
   refused and the change is undone with a message.
 - **Touch dragging is untested, and so is a screen reader**, as before; the new Display menu is
   keyboard-operable and its controls are real switches and radios, but it has only been exercised
@@ -41,14 +62,16 @@ are not. If it is not listed as working in the README, assume it does not exist 
   Cancelled are now Cold Steel, Warming, In the Forge, Tempering, Jammed, Quenched and Scrapped.
   Lowest, Low, Normal, High and Critical are now Heatless, Ember, Flame, Blaze and Inferno. History
   lines written before a rename keep the old names; new lines use the new ones. A workspace's own
-  rename of a status or priority (when Part B allows it) is never overwritten by the migrations.
+  rename of a status or priority (P4) is never overwritten by the migrations.
 - **"Where you are" is steel blue**, not amber, in the focus ring, current tab, current sidebar
   item and drag target, because orange now means a status. Amber remains the brand colour and the
   colour of warnings.
-- **The workflow is fixed per project.** Each project starts from the default seven statuses and
-  their transitions ([workflows](workflows.md)); nothing can edit them until Part B. The board shows
-  columns for **active** statuses only, which is every status today; once statuses can be
-  deactivated, tickets sitting in one will need handling.
+- **Workflows are edited per project, configuration is kept small** (P4). There is no scripting,
+  no conditional fields and no per-project field schemes. Custom fields belong to the workspace and
+  can be limited to ticket types. Quick create on the board stays title-only (templates are on the
+  full create form). A status deactivated before its tickets were moved cannot exist: retiring one
+  always moves them first. Inactive types, priorities and components stay on the tickets that have
+  them but are not offered for new choices.
 - **Paging is by page number**, not by cursor. Rows added or removed while someone pages can shift
   a ticket onto the neighbouring page. Page size is at most 100.
 - **Board columns share the window's width but never get narrower than 14rem (224px).** On a wide
@@ -60,7 +83,7 @@ are not. If it is not listed as working in the README, assume it does not exist 
   to the list. The board does not page inside a column. On the Tickets board the 50 are across all
   projects, so a busy column there fills up sooner.
 - **The Tickets board groups by status key.** Today every project has the same seven statuses, so
-  the columns are the familiar ones. Once Part B lets projects rename or add statuses, a column takes
+  the columns are the familiar ones. Now that projects can rename or add statuses (P4), a column takes
   its name from the first project (by key) that has the status, and a status only some projects
   have gets its own column. There is no "group by project" (swimlanes) yet.
 - **Bulk edit is on the list only**, one page at a time (up to 100 tickets), not on the boards.

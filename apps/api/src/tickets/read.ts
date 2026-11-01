@@ -1,6 +1,8 @@
 import {
   components,
+  cycles,
   labels,
+  milestones,
   priorities,
   projectStatuses,
   projects,
@@ -12,7 +14,15 @@ import {
   users,
   type Executor,
 } from '@forge/db';
-import type { Label, Progress, StatusCategory, TicketDetail, TicketSummary } from '@forge/shared';
+import type {
+  Label,
+  Progress,
+  StatusCategory,
+  TicketDetail,
+  TicketFieldText,
+  TicketSummary,
+  TransitionRule,
+} from '@forge/shared';
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { watchersOf } from '../notifications/service';
@@ -25,6 +35,7 @@ import {
   mentionedInOf,
   referencesOf,
 } from './content';
+import { fieldTextsFor, textsOf, ticketFieldsOf } from './field-read';
 import { ancestorsOf, childTreeOf, loadLinks, progressOf } from './structure-read';
 
 const assigneeUser = alias(users, 'assignee_user');
@@ -61,7 +72,16 @@ const columns = {
   componentProjectId: components.projectId,
   componentName: components.name,
   dueDate: tickets.dueDate,
+  startDate: tickets.startDate,
   estimateMinutes: tickets.estimateMinutes,
+  estimatePoints: tickets.estimatePoints,
+  estimation: projects.estimation,
+  milestoneId: milestones.id,
+  milestoneName: milestones.name,
+  milestoneClosedAt: milestones.closedAt,
+  cycleId: cycles.id,
+  cycleName: cycles.name,
+  cycleState: cycles.state,
   version: tickets.version,
   completedAt: tickets.completedAt,
   archivedAt: tickets.archivedAt,
@@ -86,6 +106,8 @@ function selectRows(executor: Executor, where: SQL | undefined) {
     .innerJoin(reporterUser, eq(reporterUser.id, tickets.reporterId))
     .leftJoin(assigneeUser, eq(assigneeUser.id, tickets.assigneeId))
     .leftJoin(components, eq(components.id, tickets.componentId))
+    .leftJoin(milestones, eq(milestones.id, tickets.milestoneId))
+    .leftJoin(cycles, eq(cycles.id, tickets.cycleId))
     .leftJoin(parentTicket, eq(parentTicket.id, tickets.parentId))
     .where(where);
 }
@@ -155,6 +177,7 @@ function toSummary(
   ticketLabelsList: Label[],
   commentCount: number,
   structure: Structure,
+  fieldValues: TicketFieldText[] = [],
 ): TicketSummary {
   return {
     id: row.id,
@@ -186,6 +209,7 @@ function toSummary(
     // A finished ticket is not blocked by anything any more.
     openBlockerKeys: row.statusCategory === 'completed' ? [] : structure.openBlockerKeys,
     criteria: structure.criteria,
+    fieldValues,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -207,15 +231,22 @@ export async function loadTicketSummaries(
     criteriaCountsFor(executor, organisationId, ids),
   ]);
   const byId = new Map(rows.map((row) => [row.id, row] as const));
+  const fieldTexts = await fieldTextsFor(executor, organisationId, rows);
   return ids.flatMap((id) => {
     const row = byId.get(id);
     return row
       ? [
-          toSummary(row, labelMap.get(id) ?? [], commentCounts.get(id) ?? 0, {
-            progress: progress.get(id) ?? null,
-            openBlockerKeys: blockers.get(id) ?? [],
-            criteria: criteria.get(id) ?? NO_CRITERIA,
-          }),
+          toSummary(
+            row,
+            labelMap.get(id) ?? [],
+            commentCounts.get(id) ?? 0,
+            {
+              progress: progress.get(id) ?? null,
+              openBlockerKeys: blockers.get(id) ?? [],
+              criteria: criteria.get(id) ?? NO_CRITERIA,
+            },
+            fieldTexts.get(id) ?? [],
+          ),
         ]
       : [];
   });
@@ -259,6 +290,7 @@ export async function loadTicketDetail(
         key: projectStatuses.key,
         name: projectStatuses.name,
         category: projectStatuses.category,
+        rules: statusTransitions.rules,
       })
       .from(statusTransitions)
       .innerJoin(projectStatuses, eq(projectStatuses.id, statusTransitions.toStatusId))
@@ -274,19 +306,26 @@ export async function loadTicketDetail(
     loadAttachments(executor, row.id),
     mentionedInOf(executor, row.id),
   ]);
-  const [watchers, triage] = await Promise.all([
+  const [watchers, triage, fields] = await Promise.all([
     watchersOf(executor, row.id),
     triageInfoOf(executor, row),
+    ticketFieldsOf(executor, organisationId, row),
   ]);
   const references = await referencesOf(executor, organisationId, row, criteriaItems);
   const done = criteriaItems.filter((item) => item.done).length;
 
   return {
-    ...toSummary(row, labelMap.get(row.id) ?? [], commentCounts.get(row.id) ?? 0, {
-      progress: progress.get(row.id) ?? null,
-      openBlockerKeys: blockers.get(row.id) ?? [],
-      criteria: { done, total: criteriaItems.length },
-    }),
+    ...toSummary(
+      row,
+      labelMap.get(row.id) ?? [],
+      commentCounts.get(row.id) ?? 0,
+      {
+        progress: progress.get(row.id) ?? null,
+        openBlockerKeys: blockers.get(row.id) ?? [],
+        criteria: { done, total: criteriaItems.length },
+      },
+      textsOf(fields),
+    ),
     description: row.description,
     goal: row.goal,
     criteriaItems,
@@ -297,13 +336,27 @@ export async function loadTicketDetail(
     component: row.componentId
       ? { id: row.componentId, projectId: row.componentProjectId!, name: row.componentName! }
       : null,
+    startDate: row.startDate,
     estimateMinutes: row.estimateMinutes,
+    estimatePoints: row.estimatePoints,
+    estimation: row.estimation as TicketDetail['estimation'],
+    milestone: row.milestoneId
+      ? { id: row.milestoneId, name: row.milestoneName!, closed: row.milestoneClosedAt !== null }
+      : null,
+    cycle: row.cycleId
+      ? {
+          id: row.cycleId,
+          name: row.cycleName!,
+          state: row.cycleState as NonNullable<TicketDetail['cycle']>['state'],
+        }
+      : null,
     version: row.version,
     completedAt: iso(row.completedAt),
     archivedAt: iso(row.archivedAt),
     allowedTransitions: next.map((status) => ({
       ...status,
       category: status.category as StatusCategory,
+      rules: status.rules as TransitionRule[],
     })),
     ancestors,
     children,
@@ -311,5 +364,6 @@ export async function loadTicketDetail(
     origin: row.origin as 'person' | 'scan',
     watchers,
     triage,
+    fields,
   };
 }

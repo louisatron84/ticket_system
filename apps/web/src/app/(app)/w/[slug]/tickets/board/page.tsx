@@ -86,6 +86,7 @@ export default async function TicketsBoardPage({
       >
         <div className="flex flex-col gap-4">
           <FilterBar
+            organisationId={membership.organisation.id}
             basePath={`${ticketsHref}/board`}
             filters={filters}
             scoped={false}
@@ -109,6 +110,7 @@ export default async function TicketsBoardPage({
                 />
                 <DisplayMenu
                   columns={board.data.columns.map(({ status, total }) => ({ status, total }))}
+                  customFields={config.data.fields ?? []}
                   lanes
                 />
               </div>

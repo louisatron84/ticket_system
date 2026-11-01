@@ -1,4 +1,4 @@
-import type { TicketSummary, Workflow } from '@forge/shared';
+import type { TicketSummary, TransitionRule, Workflow } from '@forge/shared';
 import { describe, expect, it } from 'vitest';
 import {
   allowedStatuses,
@@ -7,6 +7,7 @@ import {
   dropId,
   fitsLane,
   lanesOf,
+  needsComment,
   parseDropId,
   topLevelOnly,
   isMovable,
@@ -39,15 +40,22 @@ const API = { id: uuid(950), key: 'API' };
 const workflow = (
   project: { id: string; key: string },
   statuses: Workflow['statuses'],
-  moves: [StatusRef, StatusRef][],
+  moves: [StatusRef, StatusRef, TransitionRule[]?][],
   archived = false,
 ): Workflow => ({
   projectId: project.id,
   projectKey: project.key,
   archived,
   statuses,
-  transitions: moves.map(([from, to]) => ({ fromStatusId: from.id, toStatusId: to.id })),
+  transitions: moves.map(([from, to, rules = []]) => ({
+    fromStatusId: from.id,
+    toStatusId: to.id,
+    rules,
+  })),
 });
+
+/** A status as a move option: itself, with what the move needs. */
+const option = (status: StatusRef, rules: TransitionRule[] = []) => ({ ...status, rules });
 
 const WORKFLOWS: Workflow[] = [
   workflow(
@@ -59,7 +67,7 @@ const WORKFLOWS: Workflow[] = [
       [DOING, OPEN],
     ],
   ),
-  workflow(API, [API_OPEN, API_QA], [[API_OPEN, API_QA]]),
+  workflow(API, [API_OPEN, API_QA], [[API_OPEN, API_QA, ['needs_comment']]]),
 ];
 
 const ticket = (
@@ -70,6 +78,7 @@ const ticket = (
   id: uuid(100 + n),
   key: `${project.key}-${n}`,
   title: `Ticket ${n}`,
+  fieldValues: [],
   project: { ...project, name: project.key },
   type: { id: uuid(901), key: 'task', name: 'Task' },
   status: from,
@@ -167,15 +176,26 @@ describe('nextBoardState', () => {
 
 describe('moves are checked against the ticket’s own project', () => {
   it('lists only the statuses its own project allows', () => {
-    expect(allowedStatuses(WORKFLOWS, ticket(1, OPEN))).toEqual([DOING]);
-    expect(allowedStatuses(WORKFLOWS, ticket(3, DOING))).toEqual([OPEN, DONE]);
-    expect(allowedStatuses(WORKFLOWS, ticket(4, API_OPEN, API))).toEqual([API_QA]);
+    expect(allowedStatuses(WORKFLOWS, ticket(1, OPEN))).toEqual([option(DOING)]);
+    expect(allowedStatuses(WORKFLOWS, ticket(3, DOING))).toEqual([option(OPEN), option(DONE)]);
+    expect(allowedStatuses(WORKFLOWS, ticket(4, API_OPEN, API))).toEqual([
+      option(API_QA, ['needs_comment']),
+    ]);
     expect(allowedStatuses(WORKFLOWS, ticket(5, DONE))).toEqual([]);
   });
 
   it('resolves a column key to that project’s own status', () => {
-    expect(canMoveTo(WORKFLOWS, ticket(1, OPEN), 'doing')).toEqual(DOING);
-    expect(canMoveTo(WORKFLOWS, ticket(4, API_OPEN, API), 'qa')).toEqual(API_QA);
+    expect(canMoveTo(WORKFLOWS, ticket(1, OPEN), 'doing')).toEqual(option(DOING));
+    expect(canMoveTo(WORKFLOWS, ticket(4, API_OPEN, API), 'qa')).toEqual(
+      option(API_QA, ['needs_comment']),
+    );
+  });
+
+  it('says which moves must carry a comment', () => {
+    expect(needsComment(canMoveTo(WORKFLOWS, ticket(4, API_OPEN, API), 'qa'))).toBe(true);
+    expect(needsComment(canMoveTo(WORKFLOWS, ticket(1, OPEN), 'doing'))).toBe(false);
+    expect(needsComment(null)).toBe(false);
+    expect(needsComment({ id: 'x' } as { rules?: TransitionRule[] })).toBe(false);
   });
 
   it('refuses a key the workflow does not allow, or the one it is already in', () => {

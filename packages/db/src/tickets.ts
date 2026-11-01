@@ -1,5 +1,5 @@
-import { formatTicketKey, type TicketEvent } from '@forge/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import { formatTicketKey, rankBetween, type TicketEvent } from '@forge/shared';
+import { and, eq, max, sql } from 'drizzle-orm';
 import type { Executor } from './organisations';
 import {
   projectStatuses,
@@ -49,7 +49,11 @@ export type NewTicketRow = {
   assigneeId?: string | null;
   componentId?: string | null;
   dueDate?: string | null;
+  startDate?: string | null;
   estimateMinutes?: number | null;
+  estimatePoints?: number | null;
+  milestoneId?: string | null;
+  cycleId?: string | null;
   labelIds?: string[];
   /** For back-dating demo data. */
   createdAt?: Date;
@@ -87,6 +91,14 @@ export async function createTicketRow(
         );
   if (!status) throw new Error('Cannot create a ticket: no such status');
 
+  // New work goes to the bottom of the backlog. The project row is locked by the counter update
+  // above, so two tickets created at once cannot be given the same rank.
+  const [last] = await executor
+    .select({ rank: max(tickets.rank) })
+    .from(tickets)
+    .where(eq(tickets.projectId, input.projectId));
+  const rank = rankBetween(last?.rank ?? null, null);
+
   const createdAt = input.createdAt ?? new Date();
   const [ticket] = await executor
     .insert(tickets)
@@ -105,7 +117,12 @@ export async function createTicketRow(
       reporterId: input.reporterId,
       componentId: input.componentId ?? null,
       dueDate: input.dueDate ?? null,
+      startDate: input.startDate ?? null,
       estimateMinutes: input.estimateMinutes ?? null,
+      estimatePoints: input.estimatePoints ?? null,
+      milestoneId: input.milestoneId ?? null,
+      cycleId: input.cycleId ?? null,
+      rank,
       completedAt: status.category === 'completed' ? createdAt : null,
       createdAt,
       updatedAt: createdAt,

@@ -1,13 +1,17 @@
 'use client';
 
 import {
+  ESTIMATE_POINTS,
   formatEstimate,
+  formatPoints,
+  offeredChoices,
   type Member,
   type Priority,
   type TicketConfig,
   type TicketType,
 } from '@forge/shared';
 import { useId, useState, type ReactNode } from 'react';
+import { needsComment } from '@/lib/board';
 import { parseEstimate, statusOptions, validateDueDate } from '@/lib/ticket-form';
 import { formatRelativeTime } from '@/lib/tickets';
 import { buttonClass, inputClass } from '@/lib/ui';
@@ -22,6 +26,7 @@ import {
 } from './badges';
 import { CheckboxList, FilterPopover } from './filter-popover';
 import { LabelChips } from './label-chip';
+import { MoveCommentDialog, type CommentedMove } from './move-comment-dialog';
 import { useTicketEditor } from './ticket-editor';
 import { Avatar, UserChip } from './user-chip';
 
@@ -103,10 +108,16 @@ function PicSelect({
 export function TicketFields({
   config,
   members,
+  milestones = [],
+  cycles = [],
   today,
   now,
 }: {
   config: TicketConfig;
+  /** The project's milestones; closed ones are offered only as the ticket's current one. */
+  milestones?: { id: string; name: string; closed: boolean }[];
+  /** The project's cycles, when it plans in them; completed ones only as the current one. */
+  cycles?: { id: string; name: string; state: 'planned' | 'active' | 'completed' }[];
   /** People who can be assigned. Empty when the viewer may not see the member list. */
   members: Member[];
   today: string;
@@ -115,14 +126,22 @@ export function TicketFields({
   const { ticket, canEdit, canAssign, saving, save } = useTicketEditor();
   const maxRank = Math.max(1, ...config.priorities.map((priority) => priority.rank));
   const done = ticket.status.category === 'completed';
-  const projectComponents = config.components.filter(
-    (component) => component.projectId === ticket.project.id,
+  // Inactive choices are offered only as the value this ticket already has.
+  const projectComponents = offeredChoices(
+    config.components.filter((component) => component.projectId === ticket.project.id),
+    ticket.component?.id,
   );
+  const typeChoices = offeredChoices(config.types, ticket.type.id);
+  const priorityChoices = offeredChoices(config.priorities, ticket.priority.id);
 
   const [due, setDue] = useDraft(ticket.dueDate ?? '');
   const dueProblem = validateDueDate(due);
   const dueChanged = due !== (ticket.dueDate ?? '');
   const commitDue = () => save({ dueDate: due === '' ? null : due });
+  const [start, setStart] = useDraft(ticket.startDate ?? '');
+  const startProblem = validateDueDate(start);
+  const startChanged = start !== (ticket.startDate ?? '');
+  const commitStart = () => save({ startDate: start === '' ? null : start });
   const [estimate, setEstimate] = useDraft(formatEstimate(ticket.estimateMinutes) ?? '');
   const parsedEstimate = parseEstimate(estimate);
 
@@ -131,6 +150,7 @@ export function TicketFields({
   );
   const type: TicketType | undefined = config.types.find((item) => item.id === ticket.type.id);
   const statuses = statusOptions(ticket.status, ticket.allowedTransitions);
+  const [commented, setCommented] = useState<CommentedMove | null>(null);
 
   return (
     <dl className="divide-y divide-edge rounded-md border border-edge bg-panel px-4">
@@ -141,7 +161,15 @@ export function TicketFields({
             value={ticket.status.id}
             disabled={saving}
             icon={<StatusGlyph category={ticket.status.category} statusKey={ticket.status.key} />}
-            onChange={(statusId) => void save({ statusId })}
+            onChange={(statusId) => {
+              // A move that needs a comment asks for it first; the two are saved together.
+              const target = ticket.allowedTransitions.find((status) => status.id === statusId);
+              if (target && needsComment(target)) {
+                setCommented({ ticketKey: ticket.key, statusId, statusName: target.name });
+              } else {
+                void save({ statusId });
+              }
+            }}
           >
             <optgroup label="Current">
               <option value={ticket.status.id}>{ticket.status.name}</option>
@@ -163,6 +191,17 @@ export function TicketFields({
             <StatusBadge status={ticket.status} />
           </div>
         )}
+        {canEdit && (
+          <MoveCommentDialog
+            move={commented}
+            busy={saving}
+            onCancel={() => setCommented(null)}
+            onSubmit={(comment) => {
+              if (!commented) return;
+              void save({ statusId: commented.statusId, comment }).then(() => setCommented(null));
+            }}
+          />
+        )}
       </Row>
 
       <Row label="Priority" htmlFor={canEdit ? 'field-priority' : undefined}>
@@ -174,7 +213,7 @@ export function TicketFields({
             icon={<PriorityBars rank={ticket.priority.rank} maxRank={maxRank} />}
             onChange={(priorityId) => void save({ priorityId })}
           >
-            {[...config.priorities]
+            {[...priorityChoices]
               .sort((a, b) => b.rank - a.rank)
               .map((item) => (
                 <option key={item.id} value={item.id}>
@@ -198,7 +237,7 @@ export function TicketFields({
             icon={<TypeIcon typeKey={ticket.type.key} />}
             onChange={(typeId) => void save({ typeId })}
           >
-            {config.types.map((item) => (
+            {typeChoices.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
               </option>
@@ -299,6 +338,109 @@ export function TicketFields({
         )}
       </Row>
 
+      {(cycles.length > 0 || ticket.cycle) && (
+        <Row label="Cycle" htmlFor={canEdit ? 'field-cycle' : undefined}>
+          {canEdit ? (
+            <PicSelect
+              id="field-cycle"
+              value={ticket.cycle?.id ?? ''}
+              disabled={saving}
+              onChange={(cycleId) => void save({ cycleId: cycleId || null })}
+            >
+              <option value="">None</option>
+              {cycles
+                .filter((cycle) => cycle.state !== 'completed' || cycle.id === ticket.cycle?.id)
+                .map((cycle) => (
+                  <option key={cycle.id} value={cycle.id}>
+                    {cycle.state === 'active'
+                      ? `${cycle.name} (now)`
+                      : cycle.state === 'completed'
+                        ? `${cycle.name} (completed)`
+                        : cycle.name}
+                  </option>
+                ))}
+            </PicSelect>
+          ) : (
+            <div className="pt-1.5 text-[13px]">
+              {ticket.cycle?.name ?? <span className="text-muted">None</span>}
+            </div>
+          )}
+        </Row>
+      )}
+
+      {(milestones.length > 0 || ticket.milestone) && (
+        <Row label="Milestone" htmlFor={canEdit ? 'field-milestone' : undefined}>
+          {canEdit ? (
+            <PicSelect
+              id="field-milestone"
+              value={ticket.milestone?.id ?? ''}
+              disabled={saving}
+              onChange={(milestoneId) => void save({ milestoneId: milestoneId || null })}
+            >
+              <option value="">None</option>
+              {milestones
+                .filter((milestone) => !milestone.closed || milestone.id === ticket.milestone?.id)
+                .map((milestone) => (
+                  <option key={milestone.id} value={milestone.id}>
+                    {milestone.closed ? `${milestone.name} (closed)` : milestone.name}
+                  </option>
+                ))}
+            </PicSelect>
+          ) : (
+            <div className="pt-1.5 text-[13px]">
+              {ticket.milestone?.name ?? <span className="text-muted">None</span>}
+            </div>
+          )}
+        </Row>
+      )}
+
+      <Row label="Start date" htmlFor={canEdit ? 'field-start' : undefined}>
+        {canEdit ? (
+          <div className="flex flex-col gap-1">
+            <input
+              id="field-start"
+              type="date"
+              value={start}
+              disabled={saving}
+              onChange={(event) => setStart(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && startChanged && !startProblem) {
+                  event.preventDefault();
+                  void commitStart();
+                }
+              }}
+              aria-invalid={startProblem ? true : undefined}
+              className={inputClass(Boolean(startProblem))}
+            />
+            {/* Saved on purpose, like the due date below. */}
+            {startChanged && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={`${buttonClass('primary')} h-7 px-2.5 text-xs`}
+                  disabled={saving || Boolean(startProblem)}
+                  onClick={() => void commitStart()}
+                >
+                  {start === '' ? 'Remove start date' : 'Save start date'}
+                </button>
+                <button
+                  type="button"
+                  className={`${buttonClass('ghost')} h-7 px-2.5 text-xs`}
+                  disabled={saving}
+                  onClick={() => setStart(ticket.startDate ?? '')}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="pt-1.5 font-mono text-[13px]">
+            {ticket.startDate ?? <span className="font-sans text-muted">None</span>}
+          </div>
+        )}
+      </Row>
+
       <Row label="Due date" htmlFor={canEdit ? 'field-due' : undefined}>
         {canEdit ? (
           <div className="flex flex-col gap-1">
@@ -355,7 +497,29 @@ export function TicketFields({
       </Row>
 
       <Row label="Estimate" htmlFor={canEdit ? 'field-estimate' : undefined}>
-        {canEdit ? (
+        {ticket.estimation === 'points' ? (
+          canEdit ? (
+            <PicSelect
+              id="field-estimate"
+              value={ticket.estimatePoints === null ? '' : String(ticket.estimatePoints)}
+              disabled={saving}
+              onChange={(value) =>
+                void save({ estimatePoints: value === '' ? null : Number(value) })
+              }
+            >
+              <option value="">No estimate</option>
+              {ESTIMATE_POINTS.map((points) => (
+                <option key={points} value={points}>
+                  {formatPoints(points)}
+                </option>
+              ))}
+            </PicSelect>
+          ) : (
+            <div className="pt-1.5 text-[13px]">
+              {formatPoints(ticket.estimatePoints) ?? <span className="text-muted">None</span>}
+            </div>
+          )
+        ) : canEdit ? (
           <div className="flex flex-col gap-1">
             <input
               id="field-estimate"

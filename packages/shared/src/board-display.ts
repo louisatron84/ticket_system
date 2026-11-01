@@ -26,6 +26,9 @@ export const DEFAULT_CARD_FIELDS: CardFields = {
   type: false,
 };
 
+/** At most this many custom fields on a card. */
+export const MAX_CARD_CUSTOM_FIELDS = 10;
+
 export const BOARD_DENSITIES = ['comfortable', 'compact'] as const;
 export type BoardDensity = (typeof BOARD_DENSITIES)[number];
 
@@ -54,6 +57,11 @@ export const boardDisplaySchema = z
     heat: z.boolean(),
     show: z.enum(BOARD_SHOWS),
     lanes: z.enum(BOARD_LANES),
+    /** Custom fields shown on cards, by id, in the order they were switched on. */
+    customFields: z
+      .array(z.uuid())
+      .max(MAX_CARD_CUSTOM_FIELDS)
+      .refine((ids) => new Set(ids).size === ids.length, 'Each field may be listed only once.'),
   })
   .partial();
 export type BoardDisplayPrefs = z.infer<typeof boardDisplaySchema>;
@@ -65,6 +73,8 @@ export type BoardDisplay = {
   heat: boolean;
   show: BoardShow;
   lanes: BoardLanes;
+  /** Custom fields are off by default: none is shown until the person switches it on. */
+  customFields: string[];
 };
 
 export const DEFAULT_BOARD_DISPLAY: BoardDisplay = {
@@ -73,7 +83,15 @@ export const DEFAULT_BOARD_DISPLAY: BoardDisplay = {
   heat: true,
   show: 'all',
   lanes: 'none',
+  customFields: [],
 };
+
+/** Switches one custom field on or off for cards. */
+export function toggleCardCustomField(display: BoardDisplay, fieldId: string): string[] {
+  return display.customFields.includes(fieldId)
+    ? display.customFields.filter((id) => id !== fieldId)
+    : [...display.customFields, fieldId].slice(-MAX_CARD_CUSTOM_FIELDS);
+}
 
 /** Saved choices laid over the defaults, field by field. */
 export function resolveBoardDisplay(saved: BoardDisplayPrefs | undefined): BoardDisplay {
@@ -97,6 +115,7 @@ export function undoOf(previous: BoardDisplay, change: BoardDisplayPrefs): Board
   if (change.heat !== undefined) undo.heat = previous.heat;
   if (change.show !== undefined) undo.show = previous.show;
   if (change.lanes !== undefined) undo.lanes = previous.lanes;
+  if (change.customFields !== undefined) undo.customFields = previous.customFields;
   return undo;
 }
 
@@ -108,6 +127,7 @@ export function applyDisplayChange(current: BoardDisplay, change: BoardDisplayPr
     heat: change.heat ?? current.heat,
     show: change.show ?? current.show,
     lanes: change.lanes ?? current.lanes,
+    customFields: change.customFields ?? current.customFields,
   };
 }
 

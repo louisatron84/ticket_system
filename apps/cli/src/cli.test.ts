@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { checkServer } from './config';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { checkServer, type CliConfig } from './config';
+import { flameLines, wantsColour } from './flame';
 import { main } from './main';
-import { MOVE_WORDS, isMoveWord, ticketKey } from './moves';
+import { MOVE_WORDS, findStatus, isMoveWord, ticketKey } from './moves';
+import { listTickets } from './tickets';
 
 describe('move words', () => {
   it('map the owner’s words to status keys', () => {
@@ -102,5 +104,101 @@ describe('strict arguments', () => {
 
   it('prints its version', async () => {
     expect((await run('--version')).out).toMatch(/^forge \d+\.\d+\.\d+$/);
+  });
+});
+
+describe('the login flame', () => {
+  it('fits a small terminal and stays plain ASCII', () => {
+    const plain = flameLines(false);
+    expect(plain.length).toBeLessThanOrEqual(20);
+    expect(Math.max(...plain.map((line) => line.length))).toBeLessThanOrEqual(40);
+    expect(plain.join('')).toMatch(/^[\x20-\x7e]*$/);
+  });
+
+  it('colours only when asked, and every coloured line resets', () => {
+    expect(flameLines(false).join('')).not.toContain('\x1b[');
+    for (const line of flameLines(true).filter((l) => l.trim()))
+      expect(line.endsWith('\x1b[0m')).toBe(true);
+    expect(wantsColour({ NO_COLOR: '1' })).toBe(false);
+    expect(wantsColour({})).toBe(true);
+  });
+});
+
+describe('finding a status by what people type', () => {
+  const statuses = [
+    { id: '1', key: 'open', name: 'Warming' },
+    { id: '2', key: 'in_progress', name: 'In the Forge' },
+    { id: '3', key: 'qa', name: 'QA' },
+    { id: '4', key: 'old', name: 'Old', active: false },
+  ];
+
+  it('takes the name in any case, the key, or a move word', () => {
+    expect(findStatus(statuses, 'warming')?.key).toBe('open');
+    expect(findStatus(statuses, 'In The Forge')?.key).toBe('in_progress');
+    expect(findStatus(statuses, 'qa')?.key).toBe('qa');
+    expect(findStatus(statuses, 'in_progress')?.key).toBe('in_progress');
+    expect(findStatus(statuses, 'hammer')?.key).toBe('in_progress');
+  });
+
+  it('never means an inactive status or something else', () => {
+    expect(findStatus(statuses, 'Old')).toBeUndefined();
+    expect(findStatus(statuses, 'toString')).toBeUndefined();
+    expect(findStatus(statuses, 'nothing')).toBeUndefined();
+  });
+
+  it('needs a key and a status for forge move', async () => {
+    const run = (...args: string[]) =>
+      main(args, { out: () => {}, err: () => {} }).then((code) => ({ code }));
+    expect((await run('move')).code).toBe(2);
+    expect((await run('move', 'WEB-1')).code).toBe(2);
+    expect((await run('move', 'nope', 'QA')).code).toBe(2);
+    expect((await run('hammer', 'WEB-1', '-m')).code).toBe(2);
+  });
+});
+
+describe('catalogue with a query', () => {
+  const config: CliConfig = {
+    server: 'http://localhost:3001',
+    token: 'forge_test',
+    user: { displayName: 'Dana', email: 'dana@acme.test' },
+    workspace: { id: 'org-1', slug: 'acme', name: 'Acme' },
+    scope: 'read',
+    expiresAt: '2099-01-01T00:00:00Z',
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends the query for the server to read', async () => {
+    const fetch = vi.fn(async () => Response.json({ items: [], total: 0 }));
+    vi.stubGlobal('fetch', fetch);
+    await listTickets(config, { mine: false, limit: 25, query: 'assignee:me is:open' });
+    const url = new URL(String((fetch.mock.calls[0] as unknown[])[0]));
+    expect(url.pathname).toBe('/api/v1/orgs/org-1/tickets');
+    expect(url.searchParams.get('query')).toBe('assignee:me is:open');
+  });
+
+  it('shows every problem the server finds in it', async () => {
+    vi.stubGlobal('fetch', async () =>
+      Response.json(
+        {
+          error: {
+            code: 'validation_failed',
+            message: 'The query has problems.',
+            details: [
+              { path: 'query', message: 'There is no filter called statsu.' },
+              { path: 'query', message: 'due: is one of overdue, today, week, none.' },
+            ],
+          },
+        },
+        { status: 422 },
+      ),
+    );
+    await expect(
+      listTickets(config, { mine: false, limit: 25, query: 'statsu:x due:soon' }),
+    ).rejects.toThrow(
+      'There is no filter called statsu.\ndue: is one of overdue, today, week, none.',
+    );
   });
 });

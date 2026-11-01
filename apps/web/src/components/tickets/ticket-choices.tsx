@@ -1,6 +1,6 @@
 'use client';
 
-import type { Label, Member, Priority, StatusCategory } from '@forge/shared';
+import type { Label, Member, Priority, StatusCategory, TransitionRule } from '@forge/shared';
 import { Check } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Item } from './action-menu';
@@ -9,7 +9,14 @@ import { StatusGlyph } from './badges';
 // The short lists a ticket's menus choose from: where it can move, its priority, its assignee.
 // A board card's menu and the list's cells both show these, so they read and behave the same.
 
-export type MoveTarget = { id: string; key: string; name: string; category: StatusCategory };
+export type MoveTarget = {
+  id: string;
+  key: string;
+  name: string;
+  category: StatusCategory;
+  /** What the move needs; one that needs a comment asks for it before it is sent. */
+  rules?: readonly TransitionRule[];
+};
 
 /** A choice in a short list: what it is, with a tick on the one in force now. */
 function Choice({
@@ -76,12 +83,15 @@ export function PriorityChoices({
   onPick,
 }: {
   ticketKey: string;
-  priorities: Priority[];
+  priorities: (Priority & { active?: boolean })[];
   currentId: string;
   onPick: (priority: Priority) => void;
 }) {
-  // Highest first, the way people think of "Blaze".
-  const ordered = [...priorities].sort((a, b) => b.rank - a.rank);
+  // Highest first, the way people think of "Blaze". A deactivated priority is offered only as the
+  // ticket's current one.
+  const ordered = priorities
+    .filter((priority) => priority.active !== false || priority.id === currentId)
+    .sort((a, b) => b.rank - a.rank);
   const first = startAt(ordered.map((priority) => priority.id === currentId));
   return (
     <div role="group" aria-label={`Priority for ${ticketKey}`}>

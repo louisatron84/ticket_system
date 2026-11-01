@@ -1,8 +1,9 @@
 import pkg from '../package.json' with { type: 'json' };
 import { ServerError, call } from './client';
 import { checkServer, readConfig, removeConfig, writeConfig, type CliConfig } from './config';
+import { flameLines, wantsColour } from './flame';
 import { browserLogin, readSecret, whoAmI } from './login';
-import { MOVE_WORDS, isMoveWord, moveTicket, ticketKey } from './moves';
+import { MOVE_WORDS, isMoveWord, moveTicket, statusKeyFor, ticketKey } from './moves';
 import { formatCatalogue, formatTicket, listTickets, readTicket } from './tickets';
 
 const DEFAULT_SERVER = 'http://localhost:3000';
@@ -16,8 +17,10 @@ Signing in
   forge whoami             who you are signed in as, and where
 
 Reading
-  forge catalogue [--mine] [--status KEY] [--project KEY] [--search TEXT] [--limit N] [--json]
-                           list tickets (short: forge cat)
+  forge catalogue [--mine] [--status NAME] [--project KEY] [--search TEXT] [--limit N] [--json]
+                  [--query "assignee:me is:open order:priority"]
+                           list tickets (short: forge cat); --query takes the same words
+                           as the search box in the web app
   forge inspect <KEY> [--json]
                            show one ticket, and the moves it can make next
 
@@ -34,6 +37,9 @@ Moving
   forge jammed <KEY>       to Jammed (also: forge jam)
   forge quench <KEY>       to Quenched
   forge scrap <KEY>        to Scrapped
+  forge move <KEY> <STATUS> to any status, by its name or key (forge move WEB-1 QA)
+
+  Every move takes -m "text" to add a comment with it (some moves need one).
 
   forge --version          the version
 
@@ -45,10 +51,16 @@ const OK = 0;
 const FAILED = 1;
 const USAGE_ERROR = 2;
 
-type Io = { out: (line: string) => void; err: (line: string) => void };
+type Io = {
+  out: (line: string) => void;
+  err: (line: string) => void;
+  /** A person at a terminal, not a script or a pipe: only then is there a flame. */
+  interactive?: boolean;
+};
 const defaultIo: Io = {
   out: (line) => process.stdout.write(`${line}\n`),
   err: (line) => process.stderr.write(`${line}\n`),
+  interactive: process.stdout.isTTY === true,
 };
 
 // `forge inspect X | head -1` closes the pipe while we still write: that is the reader being
@@ -127,6 +139,7 @@ async function login(args: string[], io: Io): Promise<number> {
   }
   const me = await whoAmI(server, token);
   await writeConfig({ server, token, ...me });
+  if (io.interactive) for (const line of flameLines(wantsColour())) io.out(line);
   io.out(
     `Signed in to ${me.workspace.name} as ${me.user.displayName} (${me.scope === 'write' ? 'read and change' : 'read only'}, until ${me.expiresAt.slice(0, 10)}).`,
   );
@@ -163,10 +176,12 @@ async function logout(args: string[], io: Io): Promise<number> {
 async function catalogue(args: string[], io: Io): Promise<number> {
   const parsed = parse('catalogue', args, {
     flags: ['--mine', '--json'],
-    options: ['--status', '--project', '--search', '--limit'],
+    options: ['--status', '--project', '--search', '--query', '--limit'],
   });
   if (parsed.positional.length > 0) {
-    throw new UsageError('forge catalogue takes options only, e.g. forge cat --mine');
+    throw new UsageError(
+      'forge catalogue takes options only, e.g. forge cat --mine or forge cat --query "is:open"',
+    );
   }
   const limitText = parsed.options.get('--limit') ?? '25';
   // Plain digits only: Number() would also take 1e1, 0x5 and ' 7 '.
@@ -174,17 +189,22 @@ async function catalogue(args: string[], io: Io): Promise<number> {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
     throw new UsageError('--limit must be a whole number from 1 to 100.');
   }
-  // A move word is accepted for --status too: --status hammer means In the Forge.
-  const statusText = parsed.options.get('--status');
-  const status =
-    statusText && isMoveWord(statusText) ? MOVE_WORDS[statusText].key : statusText?.toLowerCase();
   const config = await signedIn();
+  // A status by the name people see (--status Warming), its key, or a move word (--status hammer).
+  const statusText = parsed.options.get('--status');
+  let status: string | undefined;
+  if (statusText) {
+    const project = parsed.options.get('--project');
+    status = (await statusKeyFor(config, statusText, project ? [project] : undefined)) ?? undefined;
+    if (!status) throw new UsageError(`No project has a status "${statusText}".`);
+  }
   const list = await listTickets(config, {
     mine: parsed.flags.has('--mine'),
     limit,
     ...(parsed.options.has('--project') ? { project: parsed.options.get('--project')! } : {}),
     ...(status ? { status } : {}),
     ...(parsed.options.has('--search') ? { search: parsed.options.get('--search')! } : {}),
+    ...(parsed.options.has('--query') ? { query: parsed.options.get('--query')! } : {}),
   });
   if (parsed.flags.has('--json')) io.out(JSON.stringify(list, null, 2));
   else for (const line of formatCatalogue(list)) io.out(line);
@@ -271,9 +291,22 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
     if (command === 'catalogue' || command === 'cat') return await catalogue(args, io);
     if (command === 'inspect') return await inspect(args, io);
     if (command === 'inbox') return await inbox(args, io);
-    if (isMoveWord(command)) {
-      const key = oneKey(command, parse(command, args, {}).positional);
-      const result = await moveTicket(await signedIn(), command, key);
+    if (isMoveWord(command) || command === 'move') {
+      const parsed = parse(command, args, { options: ['-m'] });
+      const comment = parsed.options.get('-m');
+      let result;
+      if (command === 'move') {
+        // forge move WEB-1 In the Forge: everything after the key is the status.
+        const [first, ...rest] = parsed.positional;
+        const key = first ? ticketKey(first) : null;
+        if (!key || rest.length === 0) {
+          throw new UsageError('Use forge move <KEY> <STATUS>, e.g. forge move WEB-1 QA');
+        }
+        result = await moveTicket(await signedIn(), { status: rest.join(' ') }, key, comment);
+      } else {
+        const key = oneKey(command, parsed.positional);
+        result = await moveTicket(await signedIn(), { word: command }, key, comment);
+      }
       (result.ok ? io.out : io.err)(result.message);
       return result.ok ? OK : FAILED;
     }

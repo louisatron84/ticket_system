@@ -11,6 +11,7 @@ import {
   type TicketList,
   type Workflow,
   type WorkspaceBoard,
+  type QueryContext,
 } from '@forge/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { orgAccess } from '../auth/guards';
@@ -18,6 +19,7 @@ import { AppError } from '../errors';
 import { loadBoard } from '../tickets/board';
 import { bulkUpdate } from '../tickets/bulk';
 import { filtersFromQuery, listTickets } from '../tickets/query';
+import { queryContextFor, withQueryText } from '../tickets/query-context';
 import { loadTicketDetail } from '../tickets/read';
 import { loadWorkflows, loadWorkspaceBoard } from '../tickets/workspace-board';
 import {
@@ -64,6 +66,12 @@ export function registerTicketRoutes(app: FastifyInstance, deps: { db: Db }): vo
   );
 
   app.get(
+    '/api/v1/orgs/:orgId/ticket-query/context',
+    { preHandler: orgAccess(db, 'tickets.view') },
+    async (request): Promise<QueryContext> => queryContextFor(db, request.org!),
+  );
+
+  app.get(
     '/api/v1/orgs/:orgId/tickets',
     { preHandler: orgAccess(db, 'tickets.view') },
     async (request): Promise<TicketList> => {
@@ -71,7 +79,7 @@ export function registerTicketRoutes(app: FastifyInstance, deps: { db: Db }): vo
       return listTickets(
         db,
         { organisationId: org.organisationId, userId: org.actorUserId },
-        filtersFromQuery(request.query),
+        await withQueryText(db, org, filtersFromQuery(request.query), request.query),
       );
     },
   );
@@ -87,7 +95,7 @@ export function registerTicketRoutes(app: FastifyInstance, deps: { db: Db }): vo
         db,
         { organisationId: org.organisationId, userId: org.actorUserId },
         projectKey,
-        filtersFromQuery(request.query),
+        await withQueryText(db, org, filtersFromQuery(request.query), request.query),
       );
     },
   );
@@ -100,7 +108,7 @@ export function registerTicketRoutes(app: FastifyInstance, deps: { db: Db }): vo
       return loadWorkspaceBoard(
         db,
         { organisationId: org.organisationId, userId: org.actorUserId },
-        filtersFromQuery(request.query),
+        await withQueryText(db, org, filtersFromQuery(request.query), request.query),
       );
     },
   );

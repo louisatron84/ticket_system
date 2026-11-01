@@ -19,6 +19,7 @@ describe('navigation registry', () => {
       'Activity',
       'Search',
       'Members',
+      'Ticket settings',
     ]);
   });
 
@@ -68,6 +69,11 @@ describe('visibleNavItems', () => {
     expect(visible(['members.view'])).toEqual(['Members']);
   });
 
+  it('adds Ticket settings only with fields.manage', () => {
+    expect(visible(['workspace.view', 'fields.manage'])).toEqual(['Overview', 'Ticket settings']);
+    expect(visible(['workspace.view', 'projects.manage', 'tickets.edit'])).toEqual(['Overview']);
+  });
+
   it('never shows planned areas, even to someone holding every permission', () => {
     expect(visible([...PERMISSIONS])).toEqual([
       'Overview',
@@ -77,6 +83,7 @@ describe('visibleNavItems', () => {
       'Tickets',
       'Triage',
       'Members',
+      'Ticket settings',
     ]);
   });
 
@@ -96,6 +103,7 @@ describe('visibleNavItems', () => {
       '/w/acme/tickets',
       '/w/acme/triage',
       '/w/acme/members',
+      '/w/acme/settings',
     ]);
   });
 
@@ -114,6 +122,10 @@ describe('breadcrumbsFor', () => {
     expect(breadcrumbsFor('/w/acme/members', acme)).toEqual([
       { label: 'Acme Robotics', href: '/w/acme' },
       { label: 'Members' },
+    ]);
+    expect(breadcrumbsFor('/w/acme/settings', acme)).toEqual([
+      { label: 'Acme Robotics', href: '/w/acme' },
+      { label: 'Ticket settings' },
     ]);
   });
 

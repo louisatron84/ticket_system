@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   ListTodo,
   Search,
+  SlidersHorizontal,
   Ticket,
   Users,
   Workflow,
@@ -110,6 +111,14 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Users,
     availability: 'available',
     requires: 'members.view',
+  },
+  {
+    id: 'ticket-settings',
+    label: 'Ticket settings',
+    path: '/settings',
+    icon: SlidersHorizontal,
+    availability: 'available',
+    requires: 'fields.manage',
   },
 ];
 

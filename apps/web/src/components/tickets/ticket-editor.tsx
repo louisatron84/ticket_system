@@ -18,6 +18,8 @@ type Editor = {
   canComment: boolean;
   /** Saves one change with the version this person is looking at. True if it was saved. */
   save: (patch: Patch) => Promise<boolean>;
+  /** Saves one custom field's value (null clears it) the same way. */
+  saveField: (fieldId: string, value: unknown) => Promise<boolean>;
 };
 
 const EditorContext = createContext<Editor | null>(null);
@@ -65,15 +67,21 @@ export function TicketEditorProvider({
   const canAssign = allowed.canAssign && !archived;
   const canComment = allowed.canComment && !archived;
 
-  async function save(patch: Patch): Promise<boolean> {
+  const ticketPath = `/api/v1/orgs/${organisationId}/tickets/${ticket.key}`;
+  const save = (patch: Patch) =>
+    send(ticketPath, { method: 'PATCH', json: { version: ticket.version, ...patch } });
+  const saveField = (fieldId: string, value: unknown) =>
+    send(`${ticketPath}/fields/${fieldId}`, {
+      method: 'PUT',
+      json: { version: ticket.version, value },
+    });
+
+  async function send(path: string, init: RequestInit & { json?: unknown }): Promise<boolean> {
     if (saving) return false;
     setSaving(true);
     setError(null);
     try {
-      const next = await apiFetch<TicketDetail>(
-        `/api/v1/orgs/${organisationId}/tickets/${ticket.key}`,
-        { method: 'PATCH', json: { version: ticket.version, ...patch } },
-      );
+      const next = await apiFetch<TicketDetail>(path, init);
       setTicket(next);
       setConflict(false);
       // The history on the page is rendered by the server; ask for it again.
@@ -89,7 +97,9 @@ export function TicketEditorProvider({
   }
 
   return (
-    <EditorContext.Provider value={{ ticket, saving, canEdit, canAssign, canComment, save }}>
+    <EditorContext.Provider
+      value={{ ticket, saving, canEdit, canAssign, canComment, save, saveField }}
+    >
       {conflict && (
         <div
           role="alert"

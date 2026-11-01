@@ -1,20 +1,22 @@
 'use client';
 
 import type { TicketFilters } from '@forge/shared';
-import { Search, UserRound, X } from 'lucide-react';
+import { UserRound, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
+import { useTransition, type ReactNode } from 'react';
 import {
   clearFilters,
   hasActiveFilters,
   hrefFor,
+  queryChips,
   structureChips,
   toggleFilterValue,
   withFilters,
   type FilterField,
 } from '@/lib/ticket-query';
-import { buttonClass, inputClass } from '@/lib/ui';
+import { buttonClass } from '@/lib/ui';
 import { CheckboxList, FilterPopover, RadioList, type FilterOption } from './filter-popover';
+import { QueryBox } from './query-box';
 import { StructureFilter } from './structure-filter';
 
 export type FilterOptions = {
@@ -26,6 +28,8 @@ export type FilterOptions = {
   people: FilterOption[];
   /** Only for a list that spans projects. */
   projects: FilterOption[];
+  /** Custom fields: each one's tests, valued `<fieldId>.<test>` (the `cf` filter). */
+  fields?: { id: string; name: string; tests: FilterOption[]; sortable: boolean }[];
 };
 
 const DUE_OPTIONS: FilterOption[] = [
@@ -41,6 +45,7 @@ const DUE_OPTIONS: FilterOption[] = [
  * all land in the same place.
  */
 export function FilterBar({
+  organisationId,
   basePath,
   filters,
   scoped,
@@ -50,6 +55,8 @@ export function FilterBar({
   showStatus = true,
   showTree = false,
 }: {
+  /** Whose names a typed query is checked against. */
+  organisationId: string;
   basePath: string;
   filters: TicketFilters;
   /** The page belongs to one project, so there is no project filter and none in the address. */
@@ -69,27 +76,6 @@ export function FilterBar({
 
   const go = (next: TicketFilters, mode: 'push' | 'replace' = 'push') =>
     startTransition(() => router[mode](hrefFor(basePath, next, { omitProject: scoped })));
-
-  // Typing in the search box waits for a pause, then replaces the address (so one search is one
-  // history entry, not one per keystroke).
-  const [text, setText] = useState(filters.q);
-  // When the address changes under us (back button, a link), the box follows it.
-  const [shownQuery, setShownQuery] = useState(filters.q);
-  if (filters.q !== shownQuery) {
-    setShownQuery(filters.q);
-    setText(filters.q);
-  }
-  const latest = useRef({ filters, go });
-  useEffect(() => {
-    latest.current = { filters, go };
-  });
-  useEffect(() => {
-    if (text.trim() === filters.q) return;
-    const timer = setTimeout(() => {
-      latest.current.go(withFilters(latest.current.filters, { q: text.trim() }), 'replace');
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [text, filters.q]);
 
   const toggle = (field: FilterField) => (value: string) =>
     go(toggleFilterValue(filters, field, value));
@@ -120,6 +106,25 @@ export function FilterBar({
   addChips('assignee', 'Assignee', people);
   addChips('reporter', 'Reporter', reporters);
   addChips('label', 'Label', options.labels);
+  for (const field of options.fields ?? []) {
+    for (const test of field.tests) {
+      if (filters.cf.includes(test.value)) {
+        chips.push({
+          key: `cf:${test.value}`,
+          text: `${field.name}: ${test.label}`,
+          remove: () => go(toggleFilterValue(filters, 'cf', test.value)),
+        });
+      }
+    }
+  }
+  const sortField = options.fields?.find((field) => field.id === filters.sortField);
+  if (sortField) {
+    chips.push({
+      key: 'sortField',
+      text: `Sorted by ${sortField.name}`,
+      remove: () => go(withFilters(filters, { sortField: undefined })),
+    });
+  }
   if (filters.due) {
     const due = filters.due;
     chips.push({
@@ -129,7 +134,7 @@ export function FilterBar({
     });
   }
 
-  for (const chip of structureChips(filters)) {
+  for (const chip of [...structureChips(filters), ...queryChips(filters)]) {
     chips.push({ ...chip, remove: () => go(withFilters(filters, chip.remove)) });
   }
 
@@ -140,34 +145,7 @@ export function FilterBar({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <form
-          role="search"
-          className="relative"
-          onSubmit={(event) => {
-            event.preventDefault();
-            go(withFilters(filters, { q: text.trim() }), 'replace');
-          }}
-        >
-          <Search
-            size={14}
-            aria-hidden="true"
-            className="pointer-events-none absolute left-2.5 top-2.5 text-muted"
-          />
-          <label htmlFor="ticket-search" className="sr-only">
-            Search tickets by title or key
-          </label>
-          <input
-            id="ticket-search"
-            type="search"
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            placeholder="Search title or key"
-            data-shortcut="search"
-            autoComplete="off"
-            maxLength={100}
-            className={`${inputClass()} w-56 pl-8`}
-          />
-        </form>
+        <QueryBox organisationId={organisationId} filters={filters} go={go} />
 
         <button
           type="button"
@@ -239,6 +217,41 @@ export function FilterBar({
             onToggle={toggle('label')}
           />
         </FilterPopover>
+        {options.fields && options.fields.length > 0 && (
+          <FilterPopover label="Fields" count={filters.cf.length + (filters.sortField ? 1 : 0)}>
+            <div className="flex max-h-80 flex-col gap-2 overflow-y-auto">
+              {options.fields.map((field) => (
+                <div key={field.id} className="flex flex-col">
+                  <p className="px-2 pt-1 text-xs font-semibold text-muted">{field.name}</p>
+                  <CheckboxList
+                    name={field.name}
+                    options={field.tests}
+                    selected={filters.cf}
+                    onToggle={toggle('cf')}
+                  />
+                </div>
+              ))}
+              {options.fields.some((field) => field.sortable) && (
+                <div className="flex flex-col">
+                  <p className="px-2 pt-1 text-xs font-semibold text-muted">Sort first by</p>
+                  <RadioList
+                    name="Sort first by"
+                    options={[
+                      { value: '', label: 'No field' },
+                      ...options.fields
+                        .filter((field) => field.sortable)
+                        .map((field) => ({ value: field.id, label: field.name })),
+                    ]}
+                    selected={filters.sortField ?? ''}
+                    onChoose={(value) =>
+                      go(withFilters(filters, { sortField: value || undefined }))
+                    }
+                  />
+                </div>
+              )}
+            </div>
+          </FilterPopover>
+        )}
         <FilterPopover label="Due" count={filters.due ? 1 : 0}>
           <RadioList
             name="Due"
@@ -289,10 +302,7 @@ export function FilterBar({
           {filters.q && (
             <Chip
               text={`Text: ${filters.q}`}
-              onRemove={() => {
-                setText('');
-                go(withFilters(filters, { q: '' }));
-              }}
+              onRemove={() => go(withFilters(filters, { q: '' }))}
             />
           )}
           {chips.map((chip) => (
@@ -301,10 +311,7 @@ export function FilterBar({
           <button
             type="button"
             className={`${buttonClass('ghost')} h-7 px-2 text-xs`}
-            onClick={() => {
-              setText('');
-              go(clearFilters(filters, { keepProject: scoped }));
-            }}
+            onClick={() => go(clearFilters(filters, { keepProject: scoped }))}
           >
             Clear all
           </button>

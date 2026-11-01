@@ -150,6 +150,7 @@ const ticketRow = (w: World, overrides: Partial<typeof tickets.$inferInsert> = {
   statusId: w.web.statusIds.backlog!,
   priorityId: w.acmePriority.id,
   reporterId: w.alice.id,
+  rank: 'a0',
   ...overrides,
 });
 

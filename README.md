@@ -4,7 +4,7 @@ Forge is a developer workspace where tickets, GitHub branches and pull requests,
 deterministic workflow automation are one connected product. Automation is rule-based and
 explainable; Forge makes no AI-driven decisions.
 
-**Current stage: 2, the ticket system (phases P0 to P3 and P5 of the [ticket roadmap](docs/superpowers/specs/2026-10-23-ticket-system-roadmap.md)).** You can sign in as one of eight seeded test
+**Current stage: 2, the ticket system (phases P0 to P5 of the [ticket roadmap](docs/superpowers/specs/2026-10-23-ticket-system-roadmap.md)).** You can sign in as one of eight seeded test
 accounts and switch between them instantly. Each workspace has projects with tickets that you can
 create, edit, comment on, filter, save as views, and move between statuses on a Kanban board or the
 ticket page, following each project's workflow. The Tickets page has Board and List tabs, so every
@@ -16,7 +16,25 @@ priorities run from Heatless through Ember, Flame and Blaze to Inferno, and each
 cards pack, and which columns appear and in what order. Tickets have a goal, acceptance criteria, a formatted description, mentions, attachments and reactions. People watch tickets and get live notifications (a bell, an inbox, due-date reminders), see their own work on My Work, and can triage incoming tickets with a second person approving each decision. Roles decide what each account can see and
 do, everything is enforced by the API, and workspaces are isolated from each other.
 
-Not built yet: custom fields and the workflow editor (P4), planning (P6), search and import (P7),
+Each team can shape it: a workflow editor per project (statuses, allowed moves and rules such as
+"needs an assignee"), ticket types, priorities, labels and components, custom fields, and ticket
+templates, while new projects keep starting with the heat names.
+
+Planning is built (P6): each project has a Backlog tab ranked by dragging (or Alt+↑/↓),
+estimates in time or story points, Milestones with progress and a health flag, and, where a project
+switches them on, Cycles: planned from the backlog, started with a burndown, and completed with
+unfinished work carried on, and a Timeline of epics (start to due date), milestones and the
+blocked-by links between epics, and Reports over the last 30 or 90 days: tickets made and done,
+throughput per week, cumulative flow, lead and cycle time, age in status and, with cycles on, the
+running cycle's burndown and burnup and the velocity of the last six cycles.
+
+Finding work has started (P7): the search box on every list and board takes a query such as
+`assignee:me is:open label:bug updated:>-7d order:priority`, suggesting filter names and values as
+you type and naming any mistake. What it sets shows as chips and saves with a view. The CLI takes
+the same words (`forge cat --query "is:open"`), and the API takes them as `query=`.
+
+Not built yet: the rest of P7 (full-text search, grouping, a table view, CSV import and export,
+cursor paging),
 real sign-in with MFA (only the development account switcher exists), Forge's own repositories,
 code review and workflow automation. See
 [docs/known-limitations.md](docs/known-limitations.md) for exactly what is and is not built.
@@ -65,7 +83,9 @@ forge login                 # approve in the browser (or: forge login --token)
 forge hammer WEB-1          # move WEB-1 to In the Forge
 forge cold|warm|hammer|temper|jammed|quench|scrap <KEY>
 forge catalogue [--mine]    # list tickets (alias: forge cat; --json for scripts)
-forge inspect WEB-1         # one ticket, and the moves it allows
+forge cat --query "assignee:me is:open order:priority"   # the search box's words
+forge inspect WEB-1         # one ticket, its fields, and the moves it allows
+forge move WEB-1 QA -m "Ready for a look"   # any status by name; -m adds a comment
 forge inbox [--all]         # your notifications; forge inbox read marks them read
 forge whoami
 forge logout                # also revokes the token on the server

@@ -123,6 +123,7 @@ export async function TicketListView({
   return (
     <div className="flex flex-col gap-4">
       <FilterBar
+        organisationId={organisationId}
         showTree
         basePath={basePath}
         filters={filters}
