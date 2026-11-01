@@ -503,6 +503,7 @@ describe('ticket summary', () => {
     progress: null,
     openBlockerKeys: [],
     criteria: { done: 0, total: 0 },
+    fieldValues: [],
   };
 
   it('carries a comment count', () => {

@@ -1,4 +1,4 @@
-import type { StatusCategory, TicketSummary, Workflow } from '@forge/shared';
+import type { StatusCategory, TicketSummary, TransitionRule, Workflow } from '@forge/shared';
 
 // Pure state for the board, so a card can move the instant it is dropped and move back if the
 // server says no. Nothing here knows about the network or the page.
@@ -26,19 +26,24 @@ export function isMovable(workflows: readonly Workflow[], ticket: TicketSummary)
   return workflow !== undefined && !workflow.archived;
 }
 
+/** A status a ticket may move to, with what the move needs (an assignee, a comment…). */
+export type MoveOption = StatusRef & { rules: TransitionRule[] };
+
 /** The statuses of its own project the ticket may move to, in that project's order. */
 export function allowedStatuses(
   workflows: readonly Workflow[],
   ticket: TicketSummary,
-): StatusRef[] {
+): MoveOption[] {
   const workflow = workflowOf(workflows, ticket);
   if (!workflow || workflow.archived) return [];
-  const targets = new Set(
+  const rulesTo = new Map(
     workflow.transitions
       .filter((transition) => transition.fromStatusId === ticket.status.id)
-      .map((transition) => transition.toStatusId),
+      .map((transition) => [transition.toStatusId, transition.rules]),
   );
-  return workflow.statuses.filter((status) => targets.has(status.id));
+  return workflow.statuses
+    .filter((status) => rulesTo.has(status.id))
+    .map((status) => ({ ...status, rules: rulesTo.get(status.id) ?? [] }));
 }
 
 /** The ticket's own status with this key, if the ticket may move there; otherwise null. */
@@ -46,9 +51,13 @@ export function canMoveTo(
   workflows: readonly Workflow[],
   ticket: TicketSummary,
   toKey: string,
-): StatusRef | null {
+): MoveOption | null {
   return allowedStatuses(workflows, ticket).find((status) => status.key === toKey) ?? null;
 }
+
+/** Whether a move must carry a comment, so the person is asked for one before it is sent. */
+export const needsComment = (target: { rules?: readonly TransitionRule[] } | null | undefined) =>
+  target?.rules?.includes('needs_comment') === true;
 
 /**
  * Every status key the projects use, once each, for choosing a status across projects (a bulk

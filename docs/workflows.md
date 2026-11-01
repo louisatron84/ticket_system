@@ -24,8 +24,9 @@ keeps a project from having two initial statuses.
 ## The default workflow
 
 A new project gets its own copy of this template (`DEFAULT_STATUS_TEMPLATE` in
-`packages/shared/src/tickets.ts`). The copy is the point: once projects can edit their workflows
-(Part B), changing one will not touch another.
+`packages/shared/src/tickets.ts`). The copy is the point: each project edits its own workflow
+(P4, below), and changing one never touches another. New projects always start with these heat
+names (the owner's choice); teams rename them afterwards.
 
 The statuses are named after the heat of the work, from cold steel to finished. Each has a key (the
 stable identifier that filters, saved views and the API use) and a name (what people read). Only
@@ -73,8 +74,8 @@ and the filters.
 | Quenched     | quenched  | `#5b86b0` | tick in a disc      |
 | Scrapped     | scrapped  | `#76808f` | struck-through ring |
 
-The seven default keys have their own heat. Any other status (Part B will let projects add them)
-takes the heat of its category: not started is cold, in progress is the forge, completed is
+The seven default keys have their own heat. Any other status (a project can add them, P4) takes
+the heat of its category: not started is cold, in progress is the forge, completed is
 quenched. Every colour keeps at least 3:1 contrast against the app's surfaces (a test reads the
 surfaces from the stylesheet). The name and the symbol always accompany the colour, so a status is
 never told apart by colour alone. Where someone is (the focus ring, the current tab, the current
@@ -94,6 +95,10 @@ inside one transaction:
    "Unknown status." A status from another project or workspace is indistinguishable from a missing one.
 5. A transition row from the current status to the target must exist, otherwise `422` with
    "That move isn't allowed from <current status>."
+   5a. The transition's **rules** must hold (P4): `needs_assignee`, `needs_estimate`,
+   `needs_comment` (the move request carries `comment`, added in the same transaction) and
+   `no_open_blockers`, each refused with a sentence naming what is missing. Bulk changes refuse a
+   move that needs a comment; triage decisions and retiring a status are not subject to rules.
 6. `completedAt` is set when the ticket enters a `completed`-category status and cleared when it
    leaves one.
 
@@ -191,16 +196,26 @@ a person decides. When a ticket does move to Jammed, it remembers the status it 
 "Mark as duplicate" links the ticket to the original and moves it to Scrapped in one step, following
 the workflow (a Quenched ticket must be reopened first).
 
-## What cannot be changed yet
+## Editing a workflow (P4)
 
-Part B of Stage 2 adds the screens for editing a project's statuses and transitions and for
-deactivating a status in use (with a choice of where its tickets go). Until then:
+Project settings, **Workflow** (permission `workflows.configure`), or
+`/api/v1/orgs/:orgId/projects/:key/workflow`:
 
-- The workflow of a project is the default template, and no screen or API changes it.
-- The board shows columns for **active** statuses only. Nothing can deactivate a status yet, so
-  every ticket is on the board. When deactivation arrives, tickets in a deactivated status will
-  need a decision, which is part of that work.
-- Ticket types and priorities are the workspace defaults; there is no screen to rename them.
+- **Statuses** are added (name and category; the key is made from the name and never changes, so
+  filters, views and CLI words keep working), renamed, recategorised, reordered, deactivated and
+  reactivated. Exactly one active, not-started status is where new tickets start; every category
+  keeps at least one active status. Names are 1 to 40 characters, unique in the project.
+- **Deactivating a status with tickets** asks where they go. They move there in the same
+  transaction, each with a history line, without workflow or rule checks. The board shows active
+  statuses only, so no ticket is left in a column nobody sees.
+- **Transitions** are saved as a whole grid, with each move's rules, carrying the workflow's
+  `version` (a stale save is a `409`).
+- **Copy from another project** brings its statuses (matched by key), transitions and rules; a
+  status the source lacks is deactivated if empty, and the copy is refused if it has tickets.
+- Every change is in the audit trail. Archived projects refuse changes.
+
+Ticket types and priorities are edited for the whole workspace on **Ticket settings**
+(`/w/<slug>/settings`); see [data model](data-model.md).
 
 ## What Stage 5 will add
 

@@ -111,6 +111,40 @@ Ticketing (Stage 2). Every table below carries `organisation_id`.
   hint, how it was made, required expiry, last use, revocation) and `cli_logins` (a `forge login`
   waiting for approval: both codes hashed, machine name, address, status `pending`, `approved`,
   `denied` or `collected`, and, once approved, who approved it for which workspace and scope).
+- **Configuration (P4, migration `0010_configuration`).** `projects.workflow_version` (bumped by
+  every workflow edit); `status_transitions.rules` (a checked subset of `needs_assignee`,
+  `needs_estimate`, `needs_comment`, `no_open_blockers`); `components.lead_id`,
+  `default_assignee_id` (members, by composite foreign key) and `is_active`; `custom_fields` (name,
+  kind fixed at creation, `type_ids` empty meaning every type, order, active), `custom_field_options`
+  and `ticket_field_values` (one row per ticket and field, with one typed column set for the kind:
+  text, number, date, boolean, a member, or option ids); `ticket_templates` (per project: title
+  prefix, type, priority, component, labels, goal, criteria, description). Statuses, types,
+  priorities, fields and used options are deactivated, never deleted; labels can be merged or
+  deleted.
+- **Planning (P6, migrations `0011_planning` and `0012_milestones`).** `tickets.rank` is the
+  ticket's place in its project's backlog: text compared byte by byte (collation `C`), a
+  fractional index made by `rankBetween` in `@forge/shared`, so a move writes one row. New tickets go
+  to the bottom; existing ones were ranked most urgent first, then oldest. A rank change is not an
+  edit (no version bump, no history line) but is audited as `ticket.ranked`.
+  `projects.estimation` is `time` or `points`; `tickets.estimate_points` holds points on the fixed
+  scale 0, 1, 2, 3, 5, 8, 13, 21, and both estimates are kept when a project switches.
+  `milestones` (per project: name unique ignoring case, description, optional target date, health
+  `on_track`, `at_risk` or `off_track`, `closed_at`); `tickets.milestone_id` points at a milestone
+  of the same project by composite foreign key. A closed milestone takes no new tickets; one with
+  tickets cannot be deleted, only closed.
+- **Cycles (P6, migration `0013_cycles`).** `projects.cycles_enabled` and `cycle_length_days`
+  (7 to 28). `cycles` (per project: number, name, start and end dates, optional capacity, state
+  `planned`, `active` or `completed`; at most one active per project by a partial unique index; the
+  planned scope is recorded at the start and what got done at completion). `tickets.cycle_id` points
+  at a cycle of the same project. `cycle_scope_changes` logs every ticket joining (`added`) or
+  leaving (`removed`) a cycle, which is what the burndown is worked out from.
+- **Timeline (P6, migration `0014_timeline`).** `tickets.start_date`, an optional calendar date
+  that must not be after `due_date` (a check constraint, and a friendly refusal from the API). The
+  timeline places epics from start to due date; it reads, never writes.
+- **Reports (P6).** No tables of their own: worked out on request from `tickets` (`created_at`,
+  `completed_at`, status), the `ticket.status_changed` and `ticket.status_retired` events in
+  `ticket_events` (which carry the status ids moved between), and for cycles the same scope log the
+  burndown uses.
 - **Text is stored as written.** Descriptions, goals, criteria and comments are stored as the person
   typed them, Markdown subset included, and formatted only when shown. There is no HTML.
 - **Dates.** `due_date` is a calendar date with no time or zone. `estimate_minutes` is whole minutes

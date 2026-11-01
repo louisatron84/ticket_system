@@ -1,6 +1,8 @@
 import {
   hasPermission,
   memberSchema,
+  cycleListSchema,
+  milestoneListSchema,
   parseTicketKey,
   MAX_TICKET_DEPTH,
   projectSchema,
@@ -26,6 +28,7 @@ import {
 } from '@/components/tickets/ticket-content';
 import { TicketEditorProvider } from '@/components/tickets/ticket-editor';
 import { TicketFields } from '@/components/tickets/ticket-fields';
+import { TicketCustomFields } from '@/components/tickets/ticket-custom-fields';
 import { BlockedNotice, ParentField, TicketLinks } from '@/components/tickets/ticket-links';
 import { TicketProgress } from '@/components/tickets/ticket-progress';
 import { TicketDescription, TicketTitle } from '@/components/tickets/ticket-text';
@@ -81,7 +84,7 @@ export default async function TicketPage({
 
   const api = `/api/v1/orgs/${membership.organisation.id}`;
   const permissions = fieldPermissions(membership.permissions);
-  const [ticket, timeline, config, members, project] = await Promise.all([
+  const [ticket, timeline, config, members, project, milestones, cycles] = await Promise.all([
     serverGet(`${api}/tickets/${key}`, ticketDetailSchema),
     serverGet(`${api}/tickets/${key}/timeline`, timelineItemSchema.array()),
     serverGet(`${api}/ticket-config`, ticketConfigSchema),
@@ -90,6 +93,8 @@ export default async function TicketPage({
       ? serverGet(`${api}/members`, memberSchema.array())
       : null,
     serverGet(`${api}/projects/${parsed.projectKey}`, projectSchema),
+    serverGet(`${api}/projects/${parsed.projectKey}/milestones`, milestoneListSchema),
+    serverGet(`${api}/projects/${parsed.projectKey}/cycles`, cycleListSchema),
   ]);
   // A ticket that is not here, and one in another workspace, look exactly alike.
   if (!ticket.ok || !timeline.ok || !config.ok) notFound();
@@ -261,9 +266,12 @@ export default async function TicketPage({
                 <TicketFields
                   config={config.data}
                   members={permissions.canAssign ? memberList : []}
+                  milestones={milestones.ok ? milestones.data.milestones : []}
+                  cycles={cycles.ok && cycles.data.enabled ? cycles.data.cycles : []}
                   today={now.toISOString().slice(0, 10)}
                   now={now.toISOString()}
                 />
+                <TicketCustomFields members={memberList} />
                 <ParentField
                   organisationId={membership.organisation.id}
                   slug={membership.organisation.slug}

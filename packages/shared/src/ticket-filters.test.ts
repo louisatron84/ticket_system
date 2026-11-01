@@ -28,6 +28,8 @@ describe('parseTicketFilters: defaults', () => {
       assignee: [],
       reporter: [],
       label: [],
+      milestone: [],
+      cycle: [],
       due: undefined,
       archived: false,
       sort: 'updated',
@@ -38,6 +40,7 @@ describe('parseTicketFilters: defaults', () => {
       tree: false,
       triage: false,
       watching: false,
+      cf: [],
     });
   });
 
@@ -225,6 +228,61 @@ describe('ticketFiltersToSearchParams', () => {
   });
 });
 
+describe('custom field filters and sorting', () => {
+  const field = '01a1656b-1a49-7146-94ac-1c72df43ddb5';
+  const option = '01a1656b-1a49-7146-94ac-1c72df43ddb6';
+
+  it('reads each kind of test and keeps them in canonical form', () => {
+    const tests = ['set', 'empty', 'yes', 'no', 'me', option];
+    expect(parsed({ cf: tests.map((test) => `${field}.${test}`) }).cf).toEqual(
+      tests.map((test) => `${field}.${test}`),
+    );
+    // Ids and words are compared in lower case, so a pasted upper-case link still works.
+    expect(parsed({ cf: `${field.toUpperCase()}.SET` }).cf).toEqual([`${field}.set`]);
+  });
+
+  it('round-trips through search params, with the sort field', () => {
+    const filters = parsed({ cf: [`${field}.${option}`, `${field}.empty`], sortField: field });
+    const params = ticketFiltersToSearchParams(filters);
+    expect(params.getAll('cf')).toEqual([`${field}.${option}`, `${field}.empty`]);
+    expect(params.get('sortField')).toBe(field);
+    const again = parseTicketFilters({
+      cf: params.getAll('cf'),
+      sortField: params.get('sortField')!,
+    });
+    expect(again).toEqual({ ok: true, filters });
+  });
+
+  it('leaves both out when unused', () => {
+    expect(ticketFiltersToSearchParams(parsed({})).has('cf')).toBe(false);
+    expect(ticketFiltersToSearchParams(parsed({})).has('sortField')).toBe(false);
+  });
+
+  it.each([
+    ['no test', field],
+    ['an unknown word', `${field}.maybe`],
+    ['a field that is not an id', `status.${option}`],
+    ['a value that is not an id', `${field}.not-an-id`],
+    ['SQL', `${field}.set'; drop table tickets; --`],
+  ])('refuses %s', (_name, cf) => {
+    expect(parseTicketFilters({ cf }).ok).toBe(false);
+  });
+
+  it('refuses more than 20 tests and a sort field that is not an id', () => {
+    expect(parseTicketFilters({ cf: Array(21).fill(`${field}.set`) }).ok).toBe(false);
+    expect(parseTicketFilters({ sortField: 'title' }).ok).toBe(false);
+    expect(parseTicketFilters({ sortField: [field, field] }).ok).toBe(false);
+  });
+
+  it('keeps them in a saved view', () => {
+    const definition = viewDefinitionSchema.parse({
+      filters: { cf: [`${field}.yes`], sortField: field },
+      display: 'list',
+    });
+    expect(definition.filters).toMatchObject({ cf: [`${field}.yes`], sortField: field });
+  });
+});
+
 describe('viewDefinitionSchema', () => {
   it('fills in the defaults, so a stored view is always complete', () => {
     const definition = viewDefinitionSchema.parse({ filters: {}, display: 'board' });
@@ -322,5 +380,18 @@ describe('updateViewBodySchema', () => {
     ['an unknown key', { name: 'x', colour: 'red' }],
   ])('refuses %s', (_label, input) => {
     expect(updateViewBodySchema.safeParse(input).success).toBe(false);
+  });
+});
+
+describe('the milestone filter', () => {
+  it('takes milestone ids and none, and refuses anything else', () => {
+    const id = '01a1656b-1a49-7146-94ac-1c72df43ddb4';
+    expect(parsed({ milestone: [id, 'none'] }).milestone).toEqual([id, 'none']);
+    expect(parseTicketFilters({ milestone: 'soon' }).ok).toBe(false);
+  });
+
+  it('writes the filter back into the address', () => {
+    const id = '01a1656b-1a49-7146-94ac-1c72df43ddb4';
+    expect(ticketFiltersToSearchParams(parsed({ milestone: id })).get('milestone')).toBe(id);
   });
 });

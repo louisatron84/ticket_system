@@ -38,7 +38,7 @@ export async function loadBoard(
     }),
     eq(tickets.projectId, project.id),
   ];
-  const order = orderFor(filters.sort, filters.dir);
+  const order = orderFor(filters.sort, filters.dir, filters.sortField);
 
   const columns = await Promise.all(
     statuses.map(async (status) => {

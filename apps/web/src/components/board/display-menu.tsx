@@ -2,6 +2,7 @@
 
 import {
   CARD_FIELD_KEYS,
+  toggleCardCustomField,
   type BoardDensity,
   type BoardLanes,
   type BoardShow,
@@ -112,8 +113,11 @@ export type MenuColumn = {
 export function DisplayMenu({
   columns,
   lanes = false,
+  customFields = [],
 }: {
   columns: MenuColumn[];
+  /** The workspace's active custom fields, each of which can be switched on for cards. */
+  customFields?: { id: string; name: string }[];
   /** Offer lanes per project: on the Tickets board, which spans projects. */
   lanes?: boolean;
 }) {
@@ -155,6 +159,16 @@ export function DisplayMenu({
               checked={display.fields[key]}
               onChange={(checked) =>
                 updateDisplay({ fields: { [key]: checked } as Partial<CardFields> })
+              }
+            />
+          ))}
+          {customFields.map((field) => (
+            <Switch
+              key={field.id}
+              label={field.name}
+              checked={display.customFields.includes(field.id)}
+              onChange={() =>
+                updateDisplay({ customFields: toggleCardCustomField(display, field.id) })
               }
             />
           ))}

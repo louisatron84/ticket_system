@@ -2,8 +2,10 @@ import { parseTicketFilters, ticketFiltersToSearchParams, type TicketFilters } f
 import { describe, expect, it } from 'vitest';
 import {
   clearFilters,
+  describeDateSpec,
   hasActiveFilters,
   hrefFor,
+  queryChips,
   sortedBy,
   structureChips,
   ticketQueryFromSearchParams,
@@ -311,5 +313,46 @@ describe('structure filters', () => {
     const tree = withFilters(defaults(), { tree: true, q: 'x' });
     expect(hasActiveFilters(withFilters(defaults(), { tree: true }))).toBe(false);
     expect(clearFilters(tree)).toMatchObject({ tree: true, q: '' });
+  });
+});
+
+describe('the milestone chip', () => {
+  it('says whether it is no milestone, chosen ones, or both, and removes all of them', () => {
+    const only = withFilters(defaults(), { milestone: [uuid] });
+    expect(structureChips(only).map((chip) => chip.text)).toEqual(['Milestone: a chosen one']);
+    const both = withFilters(defaults(), { milestone: ['none', uuid] });
+    const [chip] = structureChips(both);
+    expect(chip!.text).toBe('Milestone: none or a chosen one');
+    expect(chip!.remove).toEqual({ milestone: [] });
+    expect(hasActiveFilters(both)).toBe(true);
+  });
+
+  it('keeps the milestone in the address', () => {
+    const { filters, ignored } = ticketQueryFromSearchParams({ milestone: uuid });
+    expect(ignored).toBe(false);
+    expect(filters.milestone).toEqual([uuid]);
+  });
+});
+
+describe('queryChips', () => {
+  it('shows what a typed query set that has no menu, each removable', () => {
+    const { filters } = ticketQueryFromSearchParams({
+      statusKey: 'in_progress',
+      watching: 'true',
+      updatedFrom: '-7d',
+      createdBefore: '2026-10-01',
+    });
+    const chips = queryChips(filters);
+    expect(chips.map((chip) => chip.text)).toEqual([
+      'Status: in_progress',
+      'Watching',
+      'Changed since 7 days ago',
+      'Made before 2026-10-01',
+    ]);
+    expect(chips[2]!.remove).toEqual({ updatedFrom: undefined });
+    expect(hasActiveFilters(ticketQueryFromSearchParams({ createdFrom: '-1w' }).filters)).toBe(
+      true,
+    );
+    expect(describeDateSpec('-1w')).toBe('1 week ago');
   });
 });

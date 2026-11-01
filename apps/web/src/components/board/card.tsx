@@ -26,6 +26,8 @@ type CardProps = {
   fields?: CardFields;
   /** Compact packs cards tighter: a one-line title and no labels. */
   density?: BoardDensity;
+  /** Custom fields to show, by id, in this order (only those the ticket has a value for). */
+  customFields?: string[];
 };
 
 /**
@@ -39,6 +41,7 @@ export function CardBody({
   maxRank,
   fields = DEFAULT_CARD_FIELDS,
   density = 'comfortable',
+  customFields = [],
   handle,
   menu,
 }: CardProps & { handle?: React.ReactNode; menu?: React.ReactNode }) {
@@ -90,6 +93,9 @@ export function CardBody({
       {fields.labels && !compact && ticket.labels.length > 0 && (
         <LabelChips labels={ticket.labels} max={2} />
       )}
+      {!compact && customFields.length > 0 && (
+        <CustomFieldLines ticket={ticket} ids={customFields} />
+      )}
       <StructureChips ticket={ticket} />
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-2.5">
@@ -103,6 +109,24 @@ export function CardBody({
         <UserChip person={ticket.assignee} compact />
       </div>
     </div>
+  );
+}
+
+/** The chosen custom fields that have a value, one short line each. */
+function CustomFieldLines({ ticket, ids }: { ticket: TicketSummary; ids: string[] }) {
+  const shown = ids
+    .map((id) => ticket.fieldValues.find((value) => value.fieldId === id))
+    .filter((value) => value !== undefined);
+  if (shown.length === 0) return null;
+  return (
+    <dl className="flex flex-col gap-0.5 text-xs">
+      {shown.map((value) => (
+        <div key={value.fieldId} className="flex min-w-0 gap-1">
+          <dt className="shrink-0 text-muted">{value.name}:</dt>
+          <dd className="min-w-0 truncate">{value.text}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -161,6 +185,7 @@ export function DraggableCard({
   maxRank,
   fields,
   density,
+  customFields,
   canMove,
   targets,
   actions,
@@ -197,6 +222,7 @@ export function DraggableCard({
         maxRank={maxRank}
         {...(fields ? { fields } : {})}
         {...(density ? { density } : {})}
+        {...(customFields ? { customFields } : {})}
         handle={
           canMove ? (
             <button

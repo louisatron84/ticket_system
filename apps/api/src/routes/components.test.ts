@@ -84,7 +84,10 @@ describe('adding a component', () => {
     const config = ticketConfigSchema.parse(
       (await get(`/api/v1/orgs/${f.acmeId}/ticket-config`)).json(),
     );
-    expect(config.components.find((c) => c.id === created.id)).toEqual(created);
+    expect(config.components.find((c) => c.id === created.id)).toEqual({
+      ...created,
+      active: true,
+    });
     // It belongs to WEB only.
     const api = projectDetailSchema.parse(
       (await get(`/api/v1/orgs/${f.acmeId}/projects/API`)).json(),

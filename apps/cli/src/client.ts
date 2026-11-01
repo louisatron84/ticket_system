@@ -39,8 +39,11 @@ export async function call<T>(
     if (response.status === 401) {
       throw new ServerError(401, 'Your sign-in has expired or was revoked. Run `forge login`.');
     }
-    // A refused move carries its real reason in the first detail.
-    const reason = code === 'validation_failed' ? details?.[0]?.message : undefined;
+    // A refused move carries its real reason in the details; a query may have several.
+    const reason =
+      code === 'validation_failed' && details && details.length > 0
+        ? details.map((detail) => detail.message).join('\n')
+        : undefined;
     throw new ServerError(
       response.status,
       reason ?? message ?? `The server said ${response.status}.`,

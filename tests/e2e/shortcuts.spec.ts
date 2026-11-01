@@ -44,7 +44,7 @@ test.describe('keyboard shortcuts', () => {
     await keyboardReady(page);
 
     await page.keyboard.press('/');
-    await expect(page.getByPlaceholder('Search title or key')).toBeFocused();
+    await expect(page.getByPlaceholder('Search, or try assignee:me')).toBeFocused();
     await page.keyboard.press('Escape');
     await page.locator('body').click({ position: { x: 5, y: 5 } });
 

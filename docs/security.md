@@ -168,6 +168,13 @@ Other rules the API enforces, each with a test that does not go through the page
   person. A new ticket starts in its project's initial status unless its creator holds
   `tickets.edit`: someone who may only create (a reporter) choosing any other status, Quenched
   included, is a `403`.
+- **Configuration has its own permissions** (P4): `workflows.configure` for a project's statuses,
+  transitions and rules; `fields.manage` for the workspace's types, priorities, labels and custom
+  fields; `projects.manage` for components and templates. Owners and admins hold all three. Every
+  change is audited, every name is checked like other names, a lead, default assignee or person
+  field must be a member who can see tickets, and custom-field values are validated by kind (a link
+  must be `http`/`https`, a long text follows the description rules). Templates are checked with
+  the same reference rules as a new ticket. Tokens cannot save views and do not reach these routes.
 - **An archived project is frozen.** Editing, moving, archiving, commenting on, ticking criteria
   of, attaching to, linking or triaging any of its tickets is a `409` until it is unarchived.
 - **Removing needs the permission that adding does.** Deleting a comment needs `tickets.comment`

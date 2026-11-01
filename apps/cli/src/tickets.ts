@@ -25,6 +25,8 @@ type Detail = Summary & {
   allowedTransitions: Ref[];
   dueDate: string | null;
   archivedAt: string | null;
+  /** Custom fields that apply to the ticket; missing from a server older than P4. */
+  fields?: { name: string; text: string | null }[];
 };
 
 /** The move word for each status key, so `inspect` can say which commands would work. */
@@ -52,6 +54,8 @@ export type CatalogueOptions = {
   project?: string;
   status?: string;
   search?: string;
+  /** A query, like `assignee:me is:open order:priority`, read by the server. */
+  query?: string;
   limit: number;
 };
 
@@ -64,6 +68,7 @@ export async function listTickets(
   if (options.project) params.append('project', options.project.toUpperCase());
   if (options.status) params.append('statusKey', options.status);
   if (options.search) params.set('q', options.search);
+  if (options.query !== undefined) params.set('query', options.query);
   return call(config.server, `/api/v1/orgs/${config.workspace.id}/tickets?${params}`, {
     token: config.token,
   });
@@ -94,7 +99,7 @@ export function formatCatalogue(list: { items: Summary[]; total: number }): stri
   }
   if (list.total > list.items.length) {
     lines.push(
-      `Showing ${list.items.length} of ${list.total}. Narrow it with --mine, --status or --search.`,
+      `Showing ${list.items.length} of ${list.total}. Narrow it with --mine, --status, --search or --query.`,
     );
   }
   return lines;
@@ -114,6 +119,14 @@ export function formatTicket(t: Detail, server: string, slug: string): string[] 
   if (t.criteriaItems.length > 0) {
     lines.push('', `Acceptance criteria (${t.criteria.done} of ${t.criteria.total} met)`);
     for (const item of t.criteriaItems) lines.push(`  [${item.done ? 'x' : ' '}] ${item.text}`);
+  }
+  // Custom fields: only those with a value, one per line; a long text keeps its line breaks.
+  const filled = (t.fields ?? []).filter((field) => field.text !== null && field.text !== '');
+  if (filled.length > 0) {
+    lines.push('', 'Fields');
+    for (const field of filled) {
+      lines.push(`  ${field.name}: ${field.text!.replace(/\n/g, '\n    ')}`);
+    }
   }
   if (t.description) lines.push('', 'Description', `  ${t.description.replace(/\n/g, '\n  ')}`);
   const moves = t.allowedTransitions

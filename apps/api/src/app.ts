@@ -14,6 +14,10 @@ import { registerOrgRoutes } from './routes/orgs';
 import { registerPreferencesRoutes } from './routes/preferences';
 import { registerCommentRoutes } from './routes/comments';
 import { registerLabelRoutes } from './routes/labels';
+import { registerCycleRoutes } from './routes/cycles';
+import { registerMilestoneRoutes } from './routes/milestones';
+import { registerPlanningRoutes } from './routes/planning';
+import { registerReportRoutes } from './routes/reports';
 import { registerProjectRoutes } from './routes/projects';
 import { registerTicketRoutes } from './routes/tickets';
 import { registerTicketContentRoutes } from './routes/ticket-content';
@@ -22,6 +26,10 @@ import { localDiskStorage, type AttachmentStorage } from './attachments/storage'
 import { registerTokenRoutes } from './routes/tokens';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerTriageRoutes } from './routes/triage';
+import { registerCustomFieldRoutes } from './routes/custom-fields';
+import { registerTemplateRoutes } from './routes/templates';
+import { registerWorkflowRoutes } from './routes/workflow';
+import { registerWorkspaceConfigRoutes } from './routes/workspace-config';
 import { NotificationHub } from './notifications/hub';
 import { registerViewRoutes } from './routes/views';
 
@@ -93,6 +101,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerOrgRoutes(app, { db: deps.db });
   registerPreferencesRoutes(app, { db: deps.db });
   registerProjectRoutes(app, { db: deps.db });
+  registerPlanningRoutes(app, { db: deps.db });
+  registerMilestoneRoutes(app, { db: deps.db });
+  registerCycleRoutes(app, { db: deps.db });
+  registerReportRoutes(app, { db: deps.db });
   registerTicketRoutes(app, { db: deps.db });
   registerTicketStructureRoutes(app, { db: deps.db });
   registerTicketContentRoutes(app, {
@@ -112,6 +124,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.addHook('onClose', async () => hub.close());
   registerNotificationRoutes(app, { db: deps.db, hub });
   registerTriageRoutes(app, { db: deps.db });
+  registerWorkflowRoutes(app, { db: deps.db });
+  registerWorkspaceConfigRoutes(app, { db: deps.db });
+  registerCustomFieldRoutes(app, { db: deps.db });
+  registerTemplateRoutes(app, { db: deps.db });
   if (config.devAuth) registerDevRoutes(app, { db: deps.db, config });
   registerHealthRoutes(app, {
     checks: deps.readinessChecks,

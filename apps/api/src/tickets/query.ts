@@ -8,8 +8,14 @@ import {
   tickets,
   type Executor,
 } from '@forge/db';
-import { parseTicketFilters, type TicketFilters, type TicketList } from '@forge/shared';
-import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import {
+  parseFieldFilter,
+  parseTicketFilters,
+  resolveDateSpec,
+  type TicketFilters,
+  type TicketList,
+} from '@forge/shared';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { loadTicketSummaries } from './read';
 
@@ -29,7 +35,13 @@ export const keyPrefixPattern = (text: string) => `${escapeLike(text.toUpperCase
  * The ORDER BY for a sort and direction. Always ends with the ticket id, in the same direction,
  * so rows that tie never swap places between pages.
  */
-export function orderFor(sort: TicketFilters['sort'], dir: TicketFilters['dir']): SQL[] {
+export function orderFor(
+  sort: TicketFilters['sort'],
+  dir: TicketFilters['dir'],
+  sortField?: string,
+): SQL[] {
+  // A custom field comes first; the sort chosen by name then orders tickets with equal values.
+  if (sortField) return [...fieldOrder(sortField, dir), ...orderFor(sort, dir)];
   const direction = dir === 'asc' ? asc : desc;
   switch (sort) {
     case 'updated':
@@ -46,12 +58,79 @@ export function orderFor(sort: TicketFilters['sort'], dir: TicketFilters['dir'])
           : sql`${tickets.dueDate} desc nulls last`,
         direction(tickets.id),
       ];
+    case 'rank':
+      // Backlog order: top of each project's backlog first.
+      return [direction(tickets.rank), direction(tickets.id)];
     case 'key':
       // By project, then by ticket number as a number: WEB-2 comes before WEB-10.
       return [direction(projects.key), direction(tickets.number), direction(tickets.id)];
     default:
       throw new Error(`Unknown sort: ${String(sort)}`);
   }
+}
+
+/**
+ * The rows of `ticket_field_values` a ticket shows for one field: the field is on and applies to
+ * the ticket's type. Selects 1, so callers can add a condition and wrap it in `exists`.
+ */
+const visibleFieldValue = (fieldId: string) =>
+  sql`select 1 from ticket_field_values v
+      join custom_fields f on f.id = v.field_id
+      where v.ticket_id = ${tickets.id} and v.field_id = ${fieldId} and f.is_active
+        and (cardinality(f.type_ids) = 0 or ${tickets.typeId} = any(f.type_ids))`;
+
+/**
+ * Ordering by a custom field's value, empty values last. Only one of the three columns is ever set
+ * for a field (the one for its kind), so the other two are empty for every ticket and change
+ * nothing; a field of a kind that cannot be sorted leaves the order to the rest. The columns are
+ * from a fixed list; the field id is a bound parameter.
+ */
+function fieldOrder(fieldId: string, dir: TicketFilters['dir']): SQL[] {
+  const way = sql.raw(dir === 'asc' ? 'asc nulls last' : 'desc nulls last');
+  const value = (expression: string, kind: string) =>
+    sql`(select ${sql.raw(expression)} from ticket_field_values v
+        join custom_fields f on f.id = v.field_id
+        where v.ticket_id = ${tickets.id} and v.field_id = ${fieldId} and f.is_active
+          and f.kind = ${kind}
+          and (cardinality(f.type_ids) = 0 or ${tickets.typeId} = any(f.type_ids))) ${way}`;
+  return [
+    value('v.number_value', 'number'),
+    value('v.date_value', 'date'),
+    value('lower(v.text_value)', 'text'),
+  ];
+}
+
+/**
+ * Custom-field filters: each field's tests are alternatives, and every field named must match. An
+ * id matches a person or one of the options chosen, whichever kind the field is.
+ */
+function fieldConditions(cf: readonly string[], actor: QueryActor): SQL[] {
+  const testsByField = new Map<string, string[]>();
+  for (const value of cf) {
+    const parsed = parseFieldFilter(value);
+    if (!parsed) continue;
+    testsByField.set(parsed.fieldId, [...(testsByField.get(parsed.fieldId) ?? []), parsed.test]);
+  }
+  return [...testsByField].map(([fieldId, tests]) => {
+    const visible = visibleFieldValue(fieldId);
+    const alternatives = tests.map((test) => {
+      switch (test) {
+        case 'set':
+          return sql`exists (${visible})`;
+        case 'empty':
+          return sql`not exists (${visible})`;
+        case 'yes':
+          return sql`exists (${visible} and v.boolean_value = true)`;
+        case 'no':
+          return sql`exists (${visible} and v.boolean_value = false)`;
+        case 'me':
+          return sql`exists (${visible} and v.user_id = ${actor.userId})`;
+        default:
+          return sql`exists (${visible} and (v.user_id = ${test} or ${test} = any(v.option_ids)))`;
+      }
+    });
+    return sql`(${or(...alternatives)})`;
+  });
 }
 
 /** Reads the filters from a query string, or refuses with a 422 that names each problem. */
@@ -132,6 +211,24 @@ export function conditionsFor(
       ),
     );
   }
+  if (filters.milestone.length > 0) {
+    add(
+      or(
+        ...filters.milestone.map((milestone) =>
+          milestone === 'none' ? isNull(tickets.milestoneId) : eq(tickets.milestoneId, milestone),
+        ),
+      ),
+    );
+  }
+  if (filters.cycle.length > 0) {
+    add(
+      or(
+        ...filters.cycle.map((cycle) =>
+          cycle === 'none' ? isNull(tickets.cycleId) : eq(tickets.cycleId, cycle),
+        ),
+      ),
+    );
+  }
   if (filters.reporter.length > 0) {
     add(
       inArray(
@@ -169,6 +266,14 @@ export function conditionsFor(
       break;
   }
 
+  const now = new Date();
+  if (filters.updatedFrom) add(gte(tickets.updatedAt, resolveDateSpec(filters.updatedFrom, now)));
+  if (filters.updatedBefore)
+    add(lt(tickets.updatedAt, resolveDateSpec(filters.updatedBefore, now)));
+  if (filters.createdFrom) add(gte(tickets.createdAt, resolveDateSpec(filters.createdFrom, now)));
+  if (filters.createdBefore)
+    add(lt(tickets.createdAt, resolveDateSpec(filters.createdBefore, now)));
+
   // Structure. Each names a ticket by key; a key that does not exist here matches nothing.
   const ticketIdOf = (key: string) =>
     sql`(select k.id from tickets k where k.organisation_id = ${actor.organisationId} and k.key = ${key})`;
@@ -197,6 +302,7 @@ export function conditionsFor(
     add(filters.blocked === 'yes' ? blocked : sql`not ${blocked}`);
   }
   if (filters.top) add(isNull(tickets.parentId));
+  for (const condition of fieldConditions(filters.cf, actor)) add(condition);
 
   return conditions;
 }
@@ -240,7 +346,7 @@ export async function listTickets(
   if (filters.tree) return listTicketTree(executor, actor, filters);
   const { ids, total } = await searchTicketIds(executor, {
     where: conditionsFor(filters, actor),
-    order: orderFor(filters.sort, filters.dir),
+    order: orderFor(filters.sort, filters.dir, filters.sortField),
     limit: filters.pageSize,
     offset: (filters.page - 1) * filters.pageSize,
   });
@@ -267,7 +373,7 @@ async function listTicketTree(
 ): Promise<TicketList> {
   const { ids: matched, total } = await searchTicketIds(executor, {
     where: conditionsFor(filters, actor),
-    order: orderFor(filters.sort, filters.dir),
+    order: orderFor(filters.sort, filters.dir, filters.sortField),
     limit: TREE_MATCH_LIMIT,
     offset: 0,
   });

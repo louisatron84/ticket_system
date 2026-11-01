@@ -85,6 +85,7 @@ export default async function ProjectBoardPage({
     >
       <div className="flex flex-col gap-4">
         <FilterBar
+          organisationId={membership.organisation.id}
           basePath={workspaceHref(membership.organisation.slug, `/projects/${key}/board`)}
           filters={filters}
           scoped
@@ -107,6 +108,7 @@ export default async function ProjectBoardPage({
               />
               <DisplayMenu
                 columns={board.data.columns.map(({ status, total }) => ({ status, total }))}
+                customFields={config.data.fields ?? []}
               />
             </div>
           }

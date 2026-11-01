@@ -1,4 +1,13 @@
-import { STATUS_CATEGORIES, type Member, type Project, type TicketConfig } from '@forge/shared';
+import {
+  SORTABLE_FIELD_KINDS,
+  STATUS_CATEGORIES,
+  fieldFilterValue,
+  hasOptions,
+  type CustomField,
+  type Member,
+  type Project,
+  type TicketConfig,
+} from '@forge/shared';
 import { PriorityBars, StatusGlyph, TypeIcon } from './badges';
 import type { FilterOptions } from './filter-bar';
 import { Avatar } from './user-chip';
@@ -57,7 +66,29 @@ export function buildFilterOptions(input: {
       label: project.name,
       icon: <span className="font-mono text-[11px] text-muted">{project.key}</span>,
     })),
+    fields: (input.config.fields ?? []).map((field) => ({
+      id: field.id,
+      name: field.name,
+      tests: fieldTests(field),
+      sortable: SORTABLE_FIELD_KINDS.includes(field.kind),
+    })),
   };
+}
+
+/** What a field can be filtered by: its options, yes/no, "me", and for every kind set or empty. */
+export function fieldTests(field: CustomField): { value: string; label: string }[] {
+  const test = (value: string, label: string) => ({
+    value: fieldFilterValue(field.id, value),
+    label,
+  });
+  const specific = hasOptions(field.kind)
+    ? field.options.filter((option) => option.active).map((option) => test(option.id, option.name))
+    : field.kind === 'boolean'
+      ? [test('yes', 'Yes'), test('no', 'No')]
+      : field.kind === 'person'
+        ? [test('me', 'Me')]
+        : [];
+  return [...specific, test('set', 'Has a value'), test('empty', 'Empty')];
 }
 
 export { CATEGORY_LABEL };

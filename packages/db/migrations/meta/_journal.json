@@ -71,6 +71,41 @@
       "when": 1793205728291,
       "tag": "0009_staying_informed",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793293735138,
+      "tag": "0010_configuration",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793353522585,
+      "tag": "0011_planning",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793354699792,
+      "tag": "0012_milestones",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793358059899,
+      "tag": "0013_cycles",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793358911773,
+      "tag": "0014_timeline",
+      "breakpoints": true
     }
   ]
 }

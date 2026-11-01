@@ -8,7 +8,12 @@ import {
 } from '@forge/shared';
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
+import { ComponentsSettings } from '@/components/config/components-settings';
+import { TemplatesSettings } from '@/components/config/templates-settings';
+import { WorkflowEditor } from '@/components/config/workflow-editor';
 import { BlockerSetting } from '@/components/projects/blocker-setting';
+import { CycleSetting } from '@/components/projects/cycle-setting';
+import { EstimationSetting } from '@/components/projects/estimation-setting';
 import { TriageSettingsForm } from '@/components/projects/triage-settings';
 import { NoAccess } from '@/components/workspace/no-access';
 import { getViewer, serverGet } from '@/lib/server/session';
@@ -63,6 +68,36 @@ export default async function ProjectSettingsPage({
           initial={project.data.blockersStopCompletion}
         />
       </section>
+      <section aria-labelledby="planning-heading" className="flex flex-col gap-3">
+        <h2 id="planning-heading" className="text-[13px] font-semibold">
+          Planning
+        </h2>
+        <EstimationSetting
+          organisationId={membership.organisation.id}
+          projectKey={project.data.key}
+          initial={project.data.estimation}
+        />
+        <CycleSetting
+          organisationId={membership.organisation.id}
+          projectKey={project.data.key}
+          initialEnabled={project.data.cyclesEnabled}
+          initialLength={project.data.cycleLengthDays}
+        />
+      </section>
+      {hasPermission(membership.permissions, 'workflows.configure') && (
+        <WorkflowEditor organisationId={membership.organisation.id} projectKey={project.data.key} />
+      )}
+      <ComponentsSettings
+        organisationId={membership.organisation.id}
+        projectKey={project.data.key}
+      />
+      <TemplatesSettings
+        organisationId={membership.organisation.id}
+        projectKey={project.data.key}
+        projectId={project.data.id}
+        archived={project.data.archived}
+        config={config.data}
+      />
       <TriageSettingsForm
         organisationId={membership.organisation.id}
         projectKey={project.data.key}

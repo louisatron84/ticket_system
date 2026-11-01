@@ -18,6 +18,7 @@ import {
 } from '@forge/shared';
 import { and, asc, eq, inArray, notInArray } from 'drizzle-orm';
 import { commentWritten } from '../notifications/ticket-activity';
+import { writeComment } from './comment-write';
 import { clearMentions, syncMentions } from './content';
 import { AppError } from '../errors';
 import { archivedTicketError, refuseIfProjectArchived, type TicketContext } from './service';
@@ -162,35 +163,13 @@ export async function addComment(
   const { context } = input;
   return db.transaction(async (tx) => {
     const ticketId = await editableTicketIdOf(tx, context.organisationId, input.ticketKey);
-    const [created] = await tx
-      .insert(ticketComments)
-      .values({
-        organisationId: context.organisationId,
-        ticketId,
-        authorId: context.actorUserId,
-        body: input.body,
-      })
-      .returning({ id: ticketComments.id });
-    await addTicketEvent(tx, {
+    const createdId = await writeComment(tx, {
       organisationId: context.organisationId,
-      ticketId,
       actorUserId: context.actorUserId,
-      event: { type: 'comment.added', data: { commentId: created!.id } },
-    });
-    await syncMentions(tx, {
-      organisationId: context.organisationId,
-      sourceTicketId: ticketId,
-      kind: 'comment',
-      sourceId: created!.id,
-      text: input.body,
-    });
-    await commentWritten(tx, {
-      organisationId: context.organisationId,
-      actorId: context.actorUserId,
       ticket: { id: ticketId, key: input.ticketKey },
       body: input.body,
     });
-    return toComment(await loadComment(tx, context.organisationId, ticketId, created!.id));
+    return toComment(await loadComment(tx, context.organisationId, ticketId, createdId));
   });
 }
 

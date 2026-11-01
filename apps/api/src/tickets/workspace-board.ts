@@ -1,5 +1,11 @@
 import { projectStatuses, projects, statusTransitions, tickets, type Executor } from '@forge/db';
-import type { StatusCategory, TicketFilters, Workflow, WorkspaceBoard } from '@forge/shared';
+import type {
+  StatusCategory,
+  TicketFilters,
+  TransitionRule,
+  Workflow,
+  WorkspaceBoard,
+} from '@forge/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { COLUMN_LIMIT } from './board';
 import { conditionsFor, orderFor, searchTicketIds, type QueryActor } from './query';
@@ -41,10 +47,13 @@ async function readWorkflows(executor: Executor, actor: QueryActor, projectKeys:
         projectId: statusTransitions.projectId,
         fromStatusId: statusTransitions.fromStatusId,
         toStatusId: statusTransitions.toStatusId,
+        rules: statusTransitions.rules,
       })
       .from(statusTransitions)
       .where(inArray(statusTransitions.projectId, projectIds)),
   ]);
+  // Moves touching an inactive status are kept for when it comes back, but never offered.
+  const activeIds = new Set(statusRows.map((status) => status.id));
 
   const workflows: Workflow[] = projectRows.map((project) => ({
     projectId: project.id,
@@ -60,8 +69,17 @@ async function readWorkflows(executor: Executor, actor: QueryActor, projectKeys:
         initial: status.isInitial,
       })),
     transitions: transitionRows
-      .filter((transition) => transition.projectId === project.id)
-      .map(({ fromStatusId, toStatusId }) => ({ fromStatusId, toStatusId })),
+      .filter(
+        (transition) =>
+          transition.projectId === project.id &&
+          activeIds.has(transition.fromStatusId) &&
+          activeIds.has(transition.toStatusId),
+      )
+      .map(({ fromStatusId, toStatusId, rules }) => ({
+        fromStatusId,
+        toStatusId,
+        rules: rules as TransitionRule[],
+      })),
   }));
   return { projectRows, statusRows, workflows };
 }
@@ -113,7 +131,7 @@ export async function loadWorkspaceBoard(
   );
 
   const shared = conditionsFor({ ...filters, triage: false }, actor, { ignoreStatus: true });
-  const order = orderFor(filters.sort, filters.dir);
+  const order = orderFor(filters.sort, filters.dir, filters.sortField);
   const columns = await Promise.all(
     groups.map(async ([key, group]) => {
       const { ids, total } = await searchTicketIds(executor, {

@@ -12,7 +12,10 @@ export const TICKET_CHANGE_FIELDS = [
   'assignee',
   'component',
   'dueDate',
+  'startDate',
   'estimate',
+  'milestone',
+  'cycle',
 ] as const;
 
 const changeSchema = z.object({
@@ -32,6 +35,11 @@ export const ticketEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('ticket.status_changed'),
+    data: z.object({ from: nameRef, to: nameRef }),
+  }),
+  // Moved by an administrator retiring (deactivating) the status it was in.
+  z.object({
+    type: z.literal('ticket.status_retired'),
     data: z.object({ from: nameRef, to: nameRef }),
   }),
   z.object({ type: z.literal('comment.added'), data: z.object({ commentId: z.string() }) }),
@@ -93,14 +101,25 @@ export const ticketEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('triage.snoozed'), data: z.object({ until: z.string() }) }),
   z.object({ type: z.literal('triage.rule_applied'), data: z.object({ rule: z.string() }) }),
+  // A custom field's value, in words as it read at the time. A long text records no text (both
+  // null), only that it changed.
+  z.object({
+    type: z.literal('field.changed'),
+    data: z.object({ field: z.string(), from: z.string().nullable(), to: z.string().nullable() }),
+  }),
 ]);
 export type TicketEvent = z.infer<typeof ticketEventSchema>;
 
-const FIELD_LABEL: Record<'type' | 'priority' | 'component' | 'estimate', string> = {
+const FIELD_LABEL: Record<
+  'type' | 'priority' | 'component' | 'estimate' | 'milestone' | 'cycle',
+  string
+> = {
   type: 'type',
   priority: 'priority',
   component: 'component',
   estimate: 'estimate',
+  milestone: 'milestone',
+  cycle: 'cycle',
 };
 
 function describeChange({ field, from, to }: TicketChange): string {
@@ -115,6 +134,10 @@ function describeChange({ field, from, to }: TicketChange): string {
       if (!from && to) return `assigned this to ${to}`;
       if (from && !to) return `unassigned ${from}`;
       return `reassigned this from ${from} to ${to}`;
+    case 'startDate':
+      if (!from && to) return `set the start date to ${to}`;
+      if (from && !to) return 'removed the start date';
+      return `changed the start date from ${from} to ${to}`;
     case 'dueDate':
       if (!from && to) return `set the due date to ${to}`;
       if (from && !to) return 'removed the due date';
@@ -155,6 +178,8 @@ export function describeTicketEvent(event: TicketEvent, actorName: string): stri
       return `${actorName} created this ticket`;
     case 'ticket.status_changed':
       return `${actorName} moved this from ${event.data.from.name} to ${event.data.to.name}`;
+    case 'ticket.status_retired':
+      return `${actorName} moved this from ${event.data.from.name} to ${event.data.to.name} when ${event.data.from.name} was retired`;
     case 'ticket.updated':
       return `${actorName} ${joinParts(event.data.changes.map(describeChange))}`;
     case 'labels.changed':
@@ -218,6 +243,13 @@ export function describeTicketEvent(event: TicketEvent, actorName: string): stri
       return `${actorName} snoozed this in triage until ${event.data.until}`;
     case 'triage.rule_applied':
       return `The triage rule "${event.data.rule}" filled this in`;
+    case 'field.changed': {
+      const { field, from, to } = event.data;
+      if (from === null && to === null) return `${actorName} edited ${field}`;
+      if (from === null) return `${actorName} set ${field} to ${to}`;
+      if (to === null) return `${actorName} cleared ${field} (was ${from})`;
+      return `${actorName} changed ${field} from ${from} to ${to}`;
+    }
   }
 }
 

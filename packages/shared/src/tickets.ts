@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { customFieldSchema, ticketFieldSchema, ticketFieldTextSchema } from './custom-fields';
 import { hasControlCharacter, singleLineText } from './text';
 import { triageInfoSchema } from './triage';
 import { ERROR_CODES } from './errors';
@@ -48,6 +49,40 @@ export function parseTicketKey(input: string): { projectKey: string; number: num
 
 export const STATUS_CATEGORIES = ['not_started', 'in_progress', 'completed'] as const;
 export type StatusCategory = (typeof STATUS_CATEGORIES)[number];
+
+/** What a move along a transition can need, from a fixed list. Stored on the transition. */
+export const TRANSITION_RULES = [
+  'needs_assignee',
+  'needs_estimate',
+  'needs_comment',
+  'no_open_blockers',
+] as const;
+export type TransitionRule = (typeof TRANSITION_RULES)[number];
+
+const RULE_NEEDS: Record<TransitionRule, string> = {
+  needs_assignee: 'an assignee',
+  needs_estimate: 'an estimate',
+  needs_comment: 'a comment',
+  no_open_blockers: 'its blockers completed first',
+};
+
+/**
+ * Why a move was refused by one of its rules: "Moving to Tempering needs an assignee." For the
+ * blocker rule, the open blockers are named when known.
+ */
+export function transitionRuleSentence(
+  rule: TransitionRule,
+  statusName: string,
+  openBlockerKeys: readonly string[] = [],
+): string {
+  const sentence = `Moving to ${statusName} needs ${RULE_NEEDS[rule]}.`;
+  if (rule !== 'no_open_blockers' || openBlockerKeys.length === 0) return sentence;
+  const list =
+    openBlockerKeys.length === 1
+      ? openBlockerKeys[0]
+      : `${openBlockerKeys.slice(0, -1).join(', ')} and ${openBlockerKeys.at(-1)}`;
+  return `${sentence.slice(0, -1)}: ${list} ${openBlockerKeys.length === 1 ? 'is' : 'are'} still open.`;
+}
 
 export const DEFAULT_TICKET_TYPES = [
   { key: 'task', name: 'Task', sortOrder: 1 },
@@ -144,13 +179,22 @@ const hasControlExceptWhitespace = (value: string) =>
   hasControlCharacter(value, LINE_BREAKS_AND_TABS);
 
 /** Free text that may span lines. Not trimmed; may be empty. */
-const multiLineText = (max: number) =>
+export const multiLineText = (max: number) =>
   z
     .string()
     .max(max)
     .refine((value) => !hasControlExceptWhitespace(value), 'Must not contain control characters.');
 
-const calendarDate = z
+/** A comment's text: trimmed, never empty. */
+const commentText = z
+  .string()
+  .trim()
+  .min(1)
+  .max(10_000)
+  .refine((value) => !hasControlExceptWhitespace(value), 'Must not contain control characters.');
+
+/** A day on the calendar, YYYY-MM-DD, that exists. */
+export const calendarDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the form YYYY-MM-DD.')
   .refine((value) => {
@@ -167,12 +211,36 @@ export const createProjectBodySchema = z.strictObject({
 });
 export type CreateProjectBody = z.infer<typeof createProjectBodySchema>;
 
+/** How a project sizes work: time (minutes) or story points. One system per project. */
+export const ESTIMATION_SYSTEMS = ['time', 'points'] as const;
+export type EstimationSystem = (typeof ESTIMATION_SYSTEMS)[number];
+
+/** The fixed scale of story points. */
+export const ESTIMATE_POINTS = [0, 1, 2, 3, 5, 8, 13, 21] as const;
+
+/** "3 pts", "1 pt". */
+export const formatPoints = (points: number | null): string | null =>
+  points === null ? null : `${points} ${points === 1 ? 'pt' : 'pts'}`;
+
+/** A ticket's estimate in its project's system, in words; null when it has none. */
+export function formatTicketEstimate(
+  system: EstimationSystem,
+  ticket: { estimateMinutes: number | null; estimatePoints: number | null },
+): string | null {
+  return system === 'points'
+    ? formatPoints(ticket.estimatePoints)
+    : formatEstimate(ticket.estimateMinutes);
+}
+
 export const updateProjectBodySchema = z
   .strictObject({
     name: singleLineText(80).optional(),
     description: multiLineText(2000).optional(),
     archived: z.boolean().optional(),
     blockersStopCompletion: z.boolean().optional(),
+    estimation: z.enum(ESTIMATION_SYSTEMS).optional(),
+    cyclesEnabled: z.boolean().optional(),
+    cycleLengthDays: z.number().int().min(7).max(28).optional(),
   })
   .refine((body) => Object.keys(body).length > 0, 'Nothing to change.');
 export type UpdateProjectBody = z.infer<typeof updateProjectBodySchema>;
@@ -192,7 +260,17 @@ const ticketFields = {
   componentId: z.uuid().nullable(),
   labelIds: z.array(z.uuid()).max(20),
   dueDate: calendarDate.nullable(),
+  startDate: calendarDate.nullable(),
   estimateMinutes: z.number().int().min(0).max(99_999).nullable(),
+  milestoneId: z.uuid().nullable(),
+  cycleId: z.uuid().nullable(),
+  estimatePoints: z
+    .number()
+    .int()
+    .refine((points) => (ESTIMATE_POINTS as readonly number[]).includes(points), {
+      message: `Points are one of ${ESTIMATE_POINTS.join(', ')}.`,
+    })
+    .nullable(),
 };
 
 export const createTicketBodySchema = z.strictObject({
@@ -209,7 +287,11 @@ export const createTicketBodySchema = z.strictObject({
   componentId: ticketFields.componentId.optional(),
   labelIds: ticketFields.labelIds.optional(),
   dueDate: ticketFields.dueDate.optional(),
+  startDate: ticketFields.startDate.optional(),
   estimateMinutes: ticketFields.estimateMinutes.optional(),
+  estimatePoints: ticketFields.estimatePoints.optional(),
+  milestoneId: ticketFields.milestoneId.optional(),
+  cycleId: ticketFields.cycleId.optional(),
 });
 export type CreateTicketBody = z.infer<typeof createTicketBodySchema>;
 
@@ -227,9 +309,19 @@ export const updateTicketBodySchema = z
     componentId: ticketFields.componentId.optional(),
     labelIds: ticketFields.labelIds.optional(),
     dueDate: ticketFields.dueDate.optional(),
+    startDate: ticketFields.startDate.optional(),
     estimateMinutes: ticketFields.estimateMinutes.optional(),
+    estimatePoints: ticketFields.estimatePoints.optional(),
+    milestoneId: ticketFields.milestoneId.optional(),
+    cycleId: ticketFields.cycleId.optional(),
+    /** A comment that goes with a move (for transitions that need one); added in the same change. */
+    comment: commentText.optional(),
   })
-  .refine((body) => Object.keys(body).some((key) => key !== 'version'), 'Nothing to change.');
+  .refine((body) => Object.keys(body).some((key) => key !== 'version'), 'Nothing to change.')
+  .refine((body) => body.comment === undefined || body.statusId !== undefined, {
+    message: 'A comment here goes with a move; send a status too.',
+    path: ['comment'],
+  });
 export type UpdateTicketBody = z.infer<typeof updateTicketBodySchema>;
 
 /**
@@ -296,14 +388,7 @@ export const REACTION_EMOJI: Record<Reaction, string> = {
 export const reactBodySchema = z.strictObject({ reaction: z.enum(REACTIONS), on: z.boolean() });
 export type ReactBody = z.infer<typeof reactBodySchema>;
 
-export const commentBodySchema = z.strictObject({
-  body: z
-    .string()
-    .trim()
-    .min(1)
-    .max(10_000)
-    .refine((value) => !hasControlExceptWhitespace(value), 'Must not contain control characters.'),
-});
+export const commentBodySchema = z.strictObject({ body: commentText });
 export type CommentBody = z.infer<typeof commentBodySchema>;
 
 export const createLabelBodySchema = z.strictObject({
@@ -364,21 +449,56 @@ export const projectSchema = z.object({
   blockersStopCompletion: z.boolean(),
   /** While on, tickets from people who can create but not edit go to triage first. */
   triageEnabled: z.boolean(),
+  /** How the project sizes work. */
+  estimation: z.enum(ESTIMATION_SYSTEMS),
+  /** Whether the project plans in cycles, and how long a new one is. */
+  cyclesEnabled: z.boolean(),
+  cycleLengthDays: z.number().int(),
 });
 export type Project = z.infer<typeof projectSchema>;
 
+/** An allowed move between two statuses, and what a move along it needs. */
+export const transitionSchema = z.object({
+  fromStatusId: z.uuid(),
+  toStatusId: z.uuid(),
+  rules: z.array(z.enum(TRANSITION_RULES)),
+});
+export type Transition = z.infer<typeof transitionSchema>;
+
 export const projectDetailSchema = projectSchema.extend({
   statuses: z.array(statusSchema),
-  transitions: z.array(z.object({ fromStatusId: z.uuid(), toStatusId: z.uuid() })),
+  /** Only moves between active statuses. */
+  transitions: z.array(transitionSchema),
   components: z.array(componentSchema),
 });
 export type ProjectDetail = z.infer<typeof projectDetailSchema>;
 
+/**
+ * Types, priorities and components as pickers see them: every one, in order, with whether it may
+ * still be chosen. An inactive one is offered only as the value a ticket already has.
+ */
+export const configTicketTypeSchema = ticketTypeSchema.extend({
+  sortOrder: z.number().int(),
+  active: z.boolean(),
+});
+export type ConfigTicketType = z.infer<typeof configTicketTypeSchema>;
+
+export const configPrioritySchema = prioritySchema.extend({ active: z.boolean() });
+export type ConfigPriority = z.infer<typeof configPrioritySchema>;
+
+export const configComponentSchema = componentSchema.extend({ active: z.boolean() });
+export type ConfigComponent = z.infer<typeof configComponentSchema>;
+
 export const ticketConfigSchema = z.object({
-  types: z.array(ticketTypeSchema),
-  priorities: z.array(prioritySchema),
+  /** In their order; inactive ones included, flagged. */
+  types: z.array(configTicketTypeSchema),
+  /** From least to most urgent; inactive ones included, flagged. */
+  priorities: z.array(configPrioritySchema),
   labels: z.array(labelSchema),
-  components: z.array(componentSchema),
+  /** Inactive ones included, flagged. */
+  components: z.array(configComponentSchema),
+  /** The active custom fields, in order, for filters, sorts and card fields. */
+  fields: z.array(customFieldSchema).optional(),
 });
 export type TicketConfig = z.infer<typeof ticketConfigSchema>;
 
@@ -500,6 +620,8 @@ export const ticketSummarySchema = z.object({
     done: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
   }),
+  /** The custom fields that apply to it and have a value, in the workspace's order, in words. */
+  fieldValues: z.array(ticketFieldTextSchema),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -564,12 +686,29 @@ export const ticketDetailSchema = ticketSummarySchema.extend({
   triage: triageInfoSchema.nullable(),
   reporter: userRef,
   component: componentSchema.nullable(),
+  startDate: z.string().nullable(),
   estimateMinutes: z.number().int().nullable(),
+  estimatePoints: z.number().int().nullable(),
+  /** The project's estimation system, which says which of the two estimates counts. */
+  estimation: z.enum(ESTIMATION_SYSTEMS),
+  /** The milestone it counts towards, if any. */
+  milestone: z.object({ id: z.uuid(), name: z.string(), closed: z.boolean() }).nullable(),
+  /** The cycle it is planned into, if any. */
+  cycle: z
+    .object({
+      id: z.uuid(),
+      name: z.string(),
+      state: z.enum(['planned', 'active', 'completed']),
+    })
+    .nullable(),
   version: z.number().int(),
   completedAt: z.string().nullable(),
   archivedAt: z.string().nullable(),
+  /** The active statuses it can move to, each with what the move needs. */
   allowedTransitions: z.array(
-    statusSchema.pick({ id: true, key: true, name: true, category: true }),
+    statusSchema
+      .pick({ id: true, key: true, name: true, category: true })
+      .extend({ rules: z.array(z.enum(TRANSITION_RULES)) }),
   ),
   /** From the top-level ticket down to this one's parent. */
   ancestors: z.array(ticketRefSchema),
@@ -577,6 +716,8 @@ export const ticketDetailSchema = ticketSummarySchema.extend({
   children: z.array(childNodeSchema),
   links: z.array(ticketLinkSchema),
   origin: z.enum(['person', 'scan']),
+  /** Every custom field that applies to it, in order, with its value (null when empty). */
+  fields: z.array(ticketFieldSchema),
 });
 export type TicketDetail = z.infer<typeof ticketDetailSchema>;
 
@@ -623,7 +764,8 @@ export const workflowSchema = z.object({
   statuses: z.array(
     statusSchema.pick({ id: true, key: true, name: true, category: true, initial: true }),
   ),
-  transitions: z.array(z.object({ fromStatusId: z.uuid(), toStatusId: z.uuid() })),
+  /** Only moves between active statuses. */
+  transitions: z.array(transitionSchema),
 });
 export type Workflow = z.infer<typeof workflowSchema>;
 

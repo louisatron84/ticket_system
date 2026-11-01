@@ -1,6 +1,7 @@
 import {
   components,
   createProject,
+  cycles,
   labels,
   priorities,
   projectStatuses,
@@ -27,6 +28,7 @@ import { orgAccess } from '../auth/guards';
 import { isUniqueViolation } from '../db-errors';
 import { AppError } from '../errors';
 import { parseBody } from '../validation';
+import { loadFields } from './custom-fields';
 
 const notFound = () => new AppError('not_found', 'Not found.', 404);
 
@@ -41,6 +43,9 @@ async function loadProjects(db: Db, organisationId: string, onlyKey?: string): P
       archivedAt: projects.archivedAt,
       blockersStopCompletion: projects.blockersStopCompletion,
       triageEnabled: projects.triageEnabled,
+      estimation: projects.estimation,
+      cyclesEnabled: projects.cyclesEnabled,
+      cycleLengthDays: projects.cycleLengthDays,
       ticketCount: sql<number>`count(${tickets.id}) filter (where ${tickets.archivedAt} is null)::int`,
       openCount: sql<number>`count(${tickets.id}) filter (where ${tickets.archivedAt} is null and ${projectStatuses.category} <> 'completed')::int`,
     })
@@ -57,7 +62,11 @@ async function loadProjects(db: Db, organisationId: string, onlyKey?: string): P
     // Active projects first, then archived; by name within each.
     .orderBy(asc(sql`${projects.archivedAt} is not null`), asc(projects.name));
 
-  return rows.map(({ archivedAt, ...row }) => ({ ...row, archived: archivedAt !== null }));
+  return rows.map(({ archivedAt, estimation, ...row }) => ({
+    ...row,
+    estimation: estimation as Project['estimation'],
+    archived: archivedAt !== null,
+  }));
 }
 
 export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db }): void {
@@ -132,7 +141,11 @@ export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db }): v
         await db.select().from(statusTransitions).where(eq(statusTransitions.projectId, project.id))
       )
         .filter((row) => activeIds.has(row.fromStatusId) && activeIds.has(row.toStatusId))
-        .map((row) => ({ fromStatusId: row.fromStatusId, toStatusId: row.toStatusId }));
+        .map((row) => ({
+          fromStatusId: row.fromStatusId,
+          toStatusId: row.toStatusId,
+          rules: row.rules as ProjectDetail['transitions'][number]['rules'],
+        }));
 
       const projectComponents = await db
         .select({ id: components.id, projectId: components.projectId, name: components.name })
@@ -180,7 +193,24 @@ export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db }): v
           ...(body.blockersStopCompletion !== undefined
             ? { blockersStopCompletion: body.blockersStopCompletion }
             : {}),
+          ...(body.estimation !== undefined ? { estimation: body.estimation } : {}),
+          ...(body.cyclesEnabled !== undefined ? { cyclesEnabled: body.cyclesEnabled } : {}),
+          ...(body.cycleLengthDays !== undefined ? { cycleLengthDays: body.cycleLengthDays } : {}),
         };
+        // Switching cycles off mid-cycle would hide work in progress: finish the cycle first.
+        if (body.cyclesEnabled === false && before.cyclesEnabled) {
+          const [active] = await tx
+            .select({ name: cycles.name })
+            .from(cycles)
+            .where(and(eq(cycles.projectId, before.id), eq(cycles.state, 'active')));
+          if (active) {
+            throw new AppError(
+              'conflict',
+              `${active.name} is still running. Complete it before switching cycles off.`,
+              409,
+            );
+          }
+        }
         await tx.update(projects).set(changes).where(eq(projects.id, before.id));
 
         await recordAudit(tx, {
@@ -194,12 +224,18 @@ export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db }): v
             description: before.description,
             archived: before.archivedAt !== null,
             blockersStopCompletion: before.blockersStopCompletion,
+            estimation: before.estimation,
+            cyclesEnabled: before.cyclesEnabled,
+            cycleLengthDays: before.cycleLengthDays,
           },
           after: {
             name: body.name ?? before.name,
             description: body.description ?? before.description,
             archived: body.archived ?? before.archivedAt !== null,
             blockersStopCompletion: body.blockersStopCompletion ?? before.blockersStopCompletion,
+            estimation: body.estimation ?? before.estimation,
+            cyclesEnabled: body.cyclesEnabled ?? before.cyclesEnabled,
+            cycleLengthDays: body.cycleLengthDays ?? before.cycleLengthDays,
           },
           requestId: request.id,
           source: 'user',
@@ -274,13 +310,19 @@ export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db }): v
     { preHandler: orgAccess(db, 'tickets.view') },
     async (request): Promise<TicketConfig> => {
       const organisationId = request.org!.organisationId;
-      const [types, ranked, labelRows, componentRows] = await Promise.all([
+      // Inactive types, priorities and components are listed too, flagged: pickers offer only
+      // active ones but must still show the value a ticket already has.
+      const [types, ranked, labelRows, componentRows, fields] = await Promise.all([
         db
-          .select({ id: ticketTypes.id, key: ticketTypes.key, name: ticketTypes.name })
+          .select({
+            id: ticketTypes.id,
+            key: ticketTypes.key,
+            name: ticketTypes.name,
+            sortOrder: ticketTypes.sortOrder,
+            active: ticketTypes.isActive,
+          })
           .from(ticketTypes)
-          .where(
-            and(eq(ticketTypes.organisationId, organisationId), eq(ticketTypes.isActive, true)),
-          )
+          .where(eq(ticketTypes.organisationId, organisationId))
           .orderBy(asc(ticketTypes.sortOrder), asc(ticketTypes.name)),
         db
           .select({
@@ -288,20 +330,27 @@ export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db }): v
             key: priorities.key,
             name: priorities.name,
             rank: priorities.rank,
+            active: priorities.isActive,
           })
           .from(priorities)
-          .where(and(eq(priorities.organisationId, organisationId), eq(priorities.isActive, true)))
-          .orderBy(asc(priorities.rank)),
+          .where(eq(priorities.organisationId, organisationId))
+          .orderBy(asc(priorities.rank), asc(priorities.name)),
         db
           .select({ id: labels.id, name: labels.name, color: labels.color })
           .from(labels)
           .where(eq(labels.organisationId, organisationId))
           .orderBy(asc(sql`lower(${labels.name})`)),
         db
-          .select({ id: components.id, projectId: components.projectId, name: components.name })
+          .select({
+            id: components.id,
+            projectId: components.projectId,
+            name: components.name,
+            active: components.isActive,
+          })
           .from(components)
           .where(eq(components.organisationId, organisationId))
           .orderBy(asc(components.name)),
+        loadFields(db, organisationId),
       ]);
 
       return {
@@ -309,6 +358,7 @@ export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db }): v
         priorities: ranked,
         labels: labelRows as TicketConfig['labels'],
         components: componentRows,
+        fields: fields.filter((field) => field.active),
       };
     },
   );

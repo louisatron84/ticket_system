@@ -2,7 +2,9 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  customType,
   date,
+  doublePrecision,
   foreignKey,
   index,
   integer,
@@ -24,6 +26,9 @@ const id = () =>
     .primaryKey()
     .default(sql`uuidv7()`);
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
+
+/** Text compared byte by byte, whatever the database's locale: backlog ranks sort this way. */
+const byteOrderText = customType<{ data: string }>({ dataType: () => 'text COLLATE "C"' });
 
 /** Small key/value table for facts about the installation itself. */
 export const systemMetadata = pgTable('system_metadata', {
@@ -199,6 +204,14 @@ export const projects = pgTable(
     blockersStopCompletion: boolean('blockers_stop_completion').notNull().default(true),
     /** While on, tickets from people who can create but not edit arrive in triage first. */
     triageEnabled: boolean('triage_enabled').notNull().default(false),
+    /** Bumped by every workflow edit, so two editors cannot overwrite each other's grid. */
+    workflowVersion: integer('workflow_version').notNull().default(0),
+    /** How the project sizes work: 'time' (minutes) or 'points'. */
+    estimation: text('estimation').notNull().default('time'),
+    /** Time-boxed cycles (sprints), for teams that plan that way. Off for Kanban teams. */
+    cyclesEnabled: boolean('cycles_enabled').notNull().default(false),
+    /** How long a new cycle is, in days. */
+    cycleLengthDays: integer('cycle_length_days').notNull().default(14),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdBy: uuid('created_by')
       .notNull()
@@ -210,6 +223,11 @@ export const projects = pgTable(
     unique('projects_organisation_id_unique').on(table.organisationId, table.id),
     check('projects_key_format', sql`${table.key} ~ '^[A-Z][A-Z0-9]{1,9}$'`),
     check('projects_next_number_positive', sql`${table.nextTicketNumber} >= 1`),
+    check('projects_estimation_check', sql`${table.estimation} in ('time', 'points')`),
+    check(
+      'projects_cycle_length_check',
+      sql`${table.cycleLengthDays} between 7 and 28`,
+    ),
   ],
 );
 
@@ -293,6 +311,11 @@ export const statusTransitions = pgTable(
     projectId: uuid('project_id').notNull(),
     fromStatusId: uuid('from_status_id').notNull(),
     toStatusId: uuid('to_status_id').notNull(),
+    /** What a move along this transition needs, from a fixed list (see TRANSITION_RULES). */
+    rules: text('rules')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
   },
   (table) => [
     foreignKey({
@@ -319,6 +342,10 @@ export const statusTransitions = pgTable(
       table.toStatusId,
     ),
     check('status_transitions_not_self', sql`${table.fromStatusId} <> ${table.toStatusId}`),
+    check(
+      'status_transitions_rules_check',
+      sql`${table.rules} <@ array['needs_assignee', 'needs_estimate', 'needs_comment', 'no_open_blockers']::text[]`,
+    ),
   ],
 );
 
@@ -329,6 +356,11 @@ export const components = pgTable(
     organisationId: organisationId(),
     projectId: uuid('project_id').notNull(),
     name: text('name').notNull(),
+    /** Who looks after this part of the project; shown, not enforced. */
+    leadId: uuid('lead_id'),
+    /** A new ticket with this component and no assignee is given to this person. */
+    defaultAssigneeId: uuid('default_assignee_id'),
+    isActive: boolean('is_active').notNull().default(true),
   },
   (table) => [
     foreignKey({
@@ -336,12 +368,130 @@ export const components = pgTable(
       columns: [table.organisationId, table.projectId],
       foreignColumns: [projects.organisationId, projects.id],
     }).onDelete('restrict'),
+    foreignKey({
+      name: 'components_lead_member_fk',
+      columns: [table.organisationId, table.leadId],
+      foreignColumns: [organisationMemberships.organisationId, organisationMemberships.userId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'components_default_assignee_member_fk',
+      columns: [table.organisationId, table.defaultAssigneeId],
+      foreignColumns: [organisationMemberships.organisationId, organisationMemberships.userId],
+    }).onDelete('restrict'),
     unique('components_organisation_project_id_unique').on(
       table.organisationId,
       table.projectId,
       table.id,
     ),
     uniqueIndex('components_project_name_unique').on(table.projectId, sql`lower(${table.name})`),
+  ],
+);
+
+/**
+ * A dated goal of one project that groups tickets (a fix version, a release). People set its health;
+ * its progress is worked out from its tickets. Closed milestones stay for history but take no new
+ * tickets.
+ */
+export const milestones = pgTable(
+  'milestones',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid('project_id').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    targetDate: date('target_date', { mode: 'string' }),
+    health: text('health').notNull().default('on_track'),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'milestones_project_fk',
+      columns: [table.organisationId, table.projectId],
+      foreignColumns: [projects.organisationId, projects.id],
+    }).onDelete('restrict'),
+    unique('milestones_scope_unique').on(table.organisationId, table.projectId, table.id),
+    uniqueIndex('milestones_project_name_unique').on(table.projectId, sql`lower(${table.name})`),
+    check('milestones_name_length', sql`char_length(${table.name}) between 1 and 80`),
+    check('milestones_description_length', sql`char_length(${table.description}) <= 2000`),
+    check(
+      'milestones_health_check',
+      sql`${table.health} in ('on_track', 'at_risk', 'off_track')`,
+    ),
+  ],
+);
+
+/**
+ * A time box of one project: planned, then active (at most one at a time), then completed. Starting
+ * records the planned scope and completing records what got done, which gives velocity.
+ */
+export const cycles = pgTable(
+  'cycles',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid('project_id').notNull(),
+    number: integer('number').notNull(),
+    name: text('name').notNull(),
+    startsOn: date('starts_on', { mode: 'string' }).notNull(),
+    endsOn: date('ends_on', { mode: 'string' }).notNull(),
+    /** How much work the team expects to do, in the project's estimate units. */
+    capacity: integer('capacity'),
+    state: text('state').notNull().default('planned'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    /** At the start: how many tickets, and how much estimate, were planned. */
+    plannedTickets: integer('planned_tickets'),
+    plannedEstimate: integer('planned_estimate'),
+    /** At completion: how many tickets, and how much estimate, were done. */
+    doneTickets: integer('done_tickets'),
+    doneEstimate: integer('done_estimate'),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'cycles_project_fk',
+      columns: [table.organisationId, table.projectId],
+      foreignColumns: [projects.organisationId, projects.id],
+    }).onDelete('restrict'),
+    unique('cycles_scope_unique').on(table.organisationId, table.projectId, table.id),
+    unique('cycles_project_number_unique').on(table.projectId, table.number),
+    uniqueIndex('cycles_one_active')
+      .on(table.projectId)
+      .where(sql`${table.state} = 'active'`),
+    check('cycles_name_length', sql`char_length(${table.name}) between 1 and 80`),
+    check('cycles_dates_order', sql`${table.endsOn} > ${table.startsOn}`),
+    check('cycles_state_check', sql`${table.state} in ('planned', 'active', 'completed')`),
+    check('cycles_capacity_check', sql`${table.capacity} is null or ${table.capacity} >= 0`),
+  ],
+);
+
+/** Each time a ticket joins or leaves a cycle, so the burndown can be worked out afterwards. */
+export const cycleScopeChanges = pgTable(
+  'cycle_scope_changes',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    // Only an empty planned cycle can be deleted; its log goes with it.
+    cycleId: uuid('cycle_id')
+      .notNull()
+      .references(() => cycles.id, { onDelete: 'cascade' }),
+    ticketId: uuid('ticket_id')
+      .notNull()
+      .references(() => tickets.id, { onDelete: 'restrict' }),
+    change: text('change').notNull(),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check('cycle_scope_changes_change_check', sql`${table.change} in ('added', 'removed')`),
+    index('cycle_scope_changes_cycle_idx').on(table.cycleId, table.at),
   ],
 );
 
@@ -364,7 +514,16 @@ export const tickets = pgTable(
     reporterId: uuid('reporter_id').notNull(),
     componentId: uuid('component_id'),
     dueDate: date('due_date', { mode: 'string' }),
+    /** When work is meant to begin; with the due date it places the ticket on the timeline. */
+    startDate: date('start_date', { mode: 'string' }),
     estimateMinutes: integer('estimate_minutes'),
+    estimatePoints: integer('estimate_points'),
+    /** Its place in the project's backlog (see `rankBetween` in @forge/shared). */
+    rank: byteOrderText('rank').notNull(),
+    /** The milestone of the same project the ticket counts towards. */
+    milestoneId: uuid('milestone_id'),
+    /** The cycle of the same project it is planned into. */
+    cycleId: uuid('cycle_id'),
     /** Bumped on every change; edits must present the version they started from. */
     version: integer('version').notNull().default(1),
     completedAt: timestamp('completed_at', { withTimezone: true }),
@@ -454,6 +613,28 @@ export const tickets = pgTable(
     check('tickets_goal_length', sql`char_length(${table.goal}) <= 500`),
     check('tickets_version_positive', sql`${table.version} >= 1`),
     check('tickets_number_positive', sql`${table.number} >= 1`),
+    check(
+      'tickets_estimate_points_check',
+      sql`${table.estimatePoints} is null or ${table.estimatePoints} in (0, 1, 2, 3, 5, 8, 13, 21)`,
+    ),
+    check(
+      'tickets_start_before_due',
+      sql`${table.startDate} is null or ${table.dueDate} is null or ${table.startDate} <= ${table.dueDate}`,
+    ),
+    check('tickets_rank_length', sql`char_length(${table.rank}) between 1 and 128`),
+    index('tickets_project_rank_idx').on(table.projectId, table.rank),
+    foreignKey({
+      name: 'tickets_milestone_fk',
+      columns: [table.organisationId, table.projectId, table.milestoneId],
+      foreignColumns: [milestones.organisationId, milestones.projectId, milestones.id],
+    }).onDelete('restrict'),
+    index('tickets_milestone_idx').on(table.milestoneId),
+    foreignKey({
+      name: 'tickets_cycle_fk',
+      columns: [table.organisationId, table.projectId, table.cycleId],
+      foreignColumns: [cycles.organisationId, cycles.projectId, cycles.id],
+    }).onDelete('restrict'),
+    index('tickets_cycle_idx').on(table.cycleId),
     index('tickets_organisation_project_status_idx').on(
       table.organisationId,
       table.projectId,
@@ -993,5 +1174,158 @@ export const triageRota = pgTable(
       foreignColumns: [organisationMemberships.organisationId, organisationMemberships.userId],
     }).onDelete('cascade'),
     unique('triage_rota_project_user_unique').on(table.projectId, table.userId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Configuration (P4): custom fields and ticket templates
+// ---------------------------------------------------------------------------
+
+/**
+ * A field a workspace adds to its tickets. `kind` never changes after creation. `typeIds` limits it
+ * to some ticket types (empty: every type). A field with values is deactivated, never deleted.
+ */
+export const customFields = pgTable(
+  'custom_fields',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    kind: text('kind').notNull(),
+    typeIds: uuid('type_ids')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    sortOrder: integer('sort_order').notNull().default(0),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('custom_fields_organisation_id_unique').on(table.organisationId, table.id),
+    uniqueIndex('custom_fields_organisation_name_unique').on(
+      table.organisationId,
+      sql`lower(${table.name})`,
+    ),
+    check(
+      'custom_fields_kind_check',
+      sql`${table.kind} in ('text', 'long_text', 'number', 'boolean', 'select', 'multi_select', 'date', 'url', 'person')`,
+    ),
+  ],
+);
+
+/** A choice of a select or multi-select field. In use, it can only be deactivated. */
+export const customFieldOptions = pgTable(
+  'custom_field_options',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    fieldId: uuid('field_id').notNull(),
+    name: text('name').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    isActive: boolean('is_active').notNull().default(true),
+  },
+  (table) => [
+    foreignKey({
+      name: 'custom_field_options_field_fk',
+      columns: [table.organisationId, table.fieldId],
+      foreignColumns: [customFields.organisationId, customFields.id],
+    }).onDelete('restrict'),
+    uniqueIndex('custom_field_options_field_name_unique').on(
+      table.fieldId,
+      sql`lower(${table.name})`,
+    ),
+  ],
+);
+
+/**
+ * One ticket's value for one field. Exactly the column for the field's kind is set (the API
+ * guarantees it); typed columns keep filters and sorts plain SQL. No row means "no value".
+ */
+export const ticketFieldValues = pgTable(
+  'ticket_field_values',
+  {
+    organisationId: organisationId(),
+    ticketId: uuid('ticket_id').notNull(),
+    fieldId: uuid('field_id').notNull(),
+    textValue: text('text_value'),
+    numberValue: doublePrecision('number_value'),
+    dateValue: date('date_value'),
+    booleanValue: boolean('boolean_value'),
+    userId: uuid('user_id'),
+    optionIds: uuid('option_ids').array(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: 'ticket_field_values_pk', columns: [table.ticketId, table.fieldId] }),
+    foreignKey({
+      name: 'ticket_field_values_ticket_fk',
+      columns: [table.organisationId, table.ticketId],
+      foreignColumns: [tickets.organisationId, tickets.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'ticket_field_values_field_fk',
+      columns: [table.organisationId, table.fieldId],
+      foreignColumns: [customFields.organisationId, customFields.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'ticket_field_values_user_member_fk',
+      columns: [table.organisationId, table.userId],
+      foreignColumns: [organisationMemberships.organisationId, organisationMemberships.userId],
+    }).onDelete('restrict'),
+    index('ticket_field_values_field_idx').on(table.fieldId),
+  ],
+);
+
+/** Starting values for a new ticket in one project. Picking one fills the form; nothing is kept. */
+export const ticketTemplates = pgTable(
+  'ticket_templates',
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid('project_id').notNull(),
+    name: text('name').notNull(),
+    titlePrefix: text('title_prefix').notNull().default(''),
+    typeId: uuid('type_id'),
+    priorityId: uuid('priority_id'),
+    componentId: uuid('component_id'),
+    labelIds: uuid('label_ids')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    goal: text('goal').notNull().default(''),
+    criteria: text('criteria')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    description: text('description').notNull().default(''),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'ticket_templates_project_fk',
+      columns: [table.organisationId, table.projectId],
+      foreignColumns: [projects.organisationId, projects.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'ticket_templates_type_fk',
+      columns: [table.organisationId, table.typeId],
+      foreignColumns: [ticketTypes.organisationId, ticketTypes.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'ticket_templates_priority_fk',
+      columns: [table.organisationId, table.priorityId],
+      foreignColumns: [priorities.organisationId, priorities.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'ticket_templates_component_fk',
+      columns: [table.organisationId, table.projectId, table.componentId],
+      foreignColumns: [components.organisationId, components.projectId, components.id],
+    }).onDelete('restrict'),
+    uniqueIndex('ticket_templates_project_name_unique').on(
+      table.projectId,
+      sql`lower(${table.name})`,
+    ),
   ],
 );

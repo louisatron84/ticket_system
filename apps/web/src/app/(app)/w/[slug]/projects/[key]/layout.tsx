@@ -103,6 +103,11 @@ export default async function ProjectLayout({
         label="Project views"
         boardHref={`${base}/board`}
         listHref={`${base}/list`}
+        backlogHref={`${base}/backlog`}
+        milestonesHref={`${base}/milestones`}
+        timelineHref={`${base}/timeline`}
+        reportsHref={`${base}/reports`}
+        {...(project.data.cyclesEnabled ? { cyclesHref: `${base}/cycles` } : {})}
         {...(waiting?.ok
           ? {
               triage: {
