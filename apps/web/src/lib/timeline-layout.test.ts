@@ -47,6 +47,17 @@ describe('timelineRange', () => {
     expect(range.from <= '2031-01-15').toBe(true);
     expect(range.to >= '2031-03-01').toBe(true);
   });
+
+  it('never stretches past two years back and five ahead, whatever dates are stored', () => {
+    const range = timelineRange(
+      { epics: [epic('0001-01-01', '9999-12-31')], milestones: [] },
+      '2031-01-15',
+      'weeks',
+    );
+    expect(range.from >= '2029-01-01').toBe(true);
+    expect(range.to <= '2036-02-01').toBe(true);
+    expect(ticksOf(range, 'weeks').length).toBeLessThan(400);
+  });
 });
 
 describe('barOf', () => {

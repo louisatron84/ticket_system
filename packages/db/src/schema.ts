@@ -224,10 +224,7 @@ export const projects = pgTable(
     check('projects_key_format', sql`${table.key} ~ '^[A-Z][A-Z0-9]{1,9}$'`),
     check('projects_next_number_positive', sql`${table.nextTicketNumber} >= 1`),
     check('projects_estimation_check', sql`${table.estimation} in ('time', 'points')`),
-    check(
-      'projects_cycle_length_check',
-      sql`${table.cycleLengthDays} between 7 and 28`,
-    ),
+    check('projects_cycle_length_check', sql`${table.cycleLengthDays} between 7 and 28`),
   ],
 );
 
@@ -418,10 +415,7 @@ export const milestones = pgTable(
     uniqueIndex('milestones_project_name_unique').on(table.projectId, sql`lower(${table.name})`),
     check('milestones_name_length', sql`char_length(${table.name}) between 1 and 80`),
     check('milestones_description_length', sql`char_length(${table.description}) <= 2000`),
-    check(
-      'milestones_health_check',
-      sql`${table.health} in ('on_track', 'at_risk', 'off_track')`,
-    ),
+    check('milestones_health_check', sql`${table.health} in ('on_track', 'at_risk', 'off_track')`),
   ],
 );
 

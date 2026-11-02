@@ -40,6 +40,7 @@ import { isUniqueViolation } from '../db-errors';
 import { AppError } from '../errors';
 import { ticketViewers } from '../tickets/component-assignee';
 import { parseBody } from '../validation';
+import { together } from '../together';
 
 // P4 workspace ticket settings (types, priorities, labels; `fields.manage`) and component
 // settings (`projects.manage`). See docs/superpowers/specs/2026-10-29-p4-configuration-design.md.
@@ -215,9 +216,9 @@ async function settingsOf<Setting>(
   kind: SettingKind<Setting>,
   organisationId: string,
 ): Promise<Setting[]> {
-  const [rows, counts] = await Promise.all([
-    kind.list(executor, organisationId),
-    kind.counts(executor, organisationId),
+  const [rows, counts] = await together(executor, [
+    () => kind.list(executor, organisationId),
+    () => kind.counts(executor, organisationId),
   ]);
   return rows.map((row) => kind.toSetting(row, counts.get(row.id) ?? 0));
 }
@@ -414,27 +415,29 @@ async function componentSettings(
   organisationId: string,
   projectId: string,
 ): Promise<ProjectComponentSettings> {
-  const [rows, people, counts] = await Promise.all([
-    executor
-      .select({
-        id: components.id,
-        projectId: components.projectId,
-        name: components.name,
-        active: components.isActive,
-        leadId: components.leadId,
-        defaultAssigneeId: components.defaultAssigneeId,
-      })
-      .from(components)
-      .where(
-        and(eq(components.organisationId, organisationId), eq(components.projectId, projectId)),
-      )
-      .orderBy(asc(components.name)),
-    ticketViewers(executor, organisationId),
-    countsBy(
-      executor,
-      tickets.componentId,
-      and(eq(tickets.organisationId, organisationId), eq(tickets.projectId, projectId)),
-    ),
+  const [rows, people, counts] = await together(executor, [
+    () =>
+      executor
+        .select({
+          id: components.id,
+          projectId: components.projectId,
+          name: components.name,
+          active: components.isActive,
+          leadId: components.leadId,
+          defaultAssigneeId: components.defaultAssigneeId,
+        })
+        .from(components)
+        .where(
+          and(eq(components.organisationId, organisationId), eq(components.projectId, projectId)),
+        )
+        .orderBy(asc(components.name)),
+    () => ticketViewers(executor, organisationId),
+    () =>
+      countsBy(
+        executor,
+        tickets.componentId,
+        and(eq(tickets.organisationId, organisationId), eq(tickets.projectId, projectId)),
+      ),
   ]);
   // A lead or default assignee whose role no longer lets them see tickets is still named, so
   // the page shows the truth; they are simply not offered again.
