@@ -23,8 +23,9 @@ export default async function CliApprovePage({
       <header className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold tracking-tight">Sign in the forge command</h1>
         <p className="text-[13px] text-muted">
-          Signed in here as {viewer.user.displayName}. Allowing this gives the terminal a token in
-          your name.
+          Signed in here as {viewer.user.displayName} ({viewer.user.email}). Allowing this gives the
+          terminal a token that acts as this account. If the terminal should act as someone else,
+          sign in as them first, then open the link again.
         </p>
       </header>
       <CliApproval

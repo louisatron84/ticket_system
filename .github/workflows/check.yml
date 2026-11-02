@@ -8,9 +8,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request replaces its older run; a run on main always finishes, so main's
+# own state is always known.
 concurrency:
   group: check-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   check:
@@ -35,6 +37,21 @@ jobs:
           cat db.log
           exit 1
       - run: npm run check
+      # The checks above can all pass while the app still fails to start (a missing value that only
+      # matters when a module loads): migrate, start both servers and ask each for a page.
+      - name: The app starts
+        run: |
+          npm run db:migrate
+          npm run dev > app.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:4000/health/ready > /dev/null               && curl -fsS -o /dev/null http://127.0.0.1:3000/login; then
+              echo "API and web app are up"
+              exit 0
+            fi
+            sleep 2
+          done
+          cat app.log
+          exit 1
 
   browser:
     name: Browser tests

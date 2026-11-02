@@ -94,21 +94,23 @@ export function registerDevRoutes(app: FastifyInstance, deps: { db: Db; config: 
   // off unless FORGE_DEV_RESET is set. The command `npm run db:reseed` still works either way.
   if (!config.devReset) return;
 
-  const databaseName = async () => {
-    const { rows } = await db.execute<{ name: string }>(sql`select current_database() as name`);
-    return rows[0]!.name;
+  // Which database a reset would wipe: its name and the port of the server holding it, so two
+  // servers on one machine with a database of the same name are told apart.
+  const target = async (): Promise<{ database: string; port: number | null }> => {
+    const { rows } = await db.execute<{ name: string; port: number | null }>(
+      sql`select current_database() as name, inet_server_port() as port`,
+    );
+    return { database: rows[0]!.name, port: rows[0]!.port };
   };
 
   // Says which database a reset would wipe, so the caller can name it back.
-  app.get('/api/dev/reset', { preHandler: localOnly }, async (): Promise<{ database: string }> => ({
-    database: await databaseName(),
-  }));
+  app.get('/api/dev/reset', { preHandler: localOnly }, target);
 
   // Only someone signed in may reset, and only by naming the database: a test run that finds some
   // other copy of Forge on its port is refused instead of wiping that copy's data.
   app.post('/api/dev/reset', { preHandler: [localOnly, requireUser] }, async (request, reply) => {
-    const { database } = parseBody(devResetBodySchema, request.body);
-    const name = await databaseName();
+    const named = parseBody(devResetBodySchema, request.body);
+    const { database: name, port } = await target();
     // The main development database is where people keep their own work: never from a button.
     if (name === PROTECTED_DATABASE) {
       throw new AppError(
@@ -117,10 +119,10 @@ export function registerDevRoutes(app: FastifyInstance, deps: { db: Db; config: 
         403,
       );
     }
-    if (database !== name) {
+    if (named.database !== name || named.port !== port) {
       throw new AppError(
         'conflict',
-        `This server uses the database "${name}", not "${database}". Nothing was reset.`,
+        `This server uses the database "${name}" on port ${port ?? 'none'}, not "${named.database}" on port ${named.port ?? 'none'}. Nothing was reset.`,
         409,
       );
     }

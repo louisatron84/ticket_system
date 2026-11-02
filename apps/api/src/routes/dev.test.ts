@@ -27,7 +27,9 @@ const signInAs = (payload: unknown, headers: Headers = {}) =>
   ctx.app.inject({ method: 'POST', url: '/api/dev/session', payload: payload as object, headers });
 /** The database these tests run on, which a reset must name. */
 const testDatabase = () => new URL(process.env.TEST_DATABASE_URL!).pathname.slice(1);
-const reset = (headers: Headers = {}, payload: object = { database: testDatabase() }) =>
+const testPort = () => Number(new URL(process.env.TEST_DATABASE_URL!).port || 5432);
+const target = () => ({ database: testDatabase(), port: testPort() });
+const reset = (headers: Headers = {}, payload: object = target()) =>
   ctx.app.inject({ method: 'POST', url: '/api/dev/reset', headers, payload });
 const me = (cookie: string) =>
   ctx.app.inject({ method: 'GET', url: '/api/v1/me', headers: { cookie } });
@@ -202,7 +204,7 @@ describe('POST /api/dev/reset', () => {
     await noReset.close();
     const available = await ctx.app.inject({ method: 'GET', url: '/api/dev/reset' });
     expect(available.statusCode).toBe(200);
-    expect(available.json()).toEqual({ database: testDatabase() });
+    expect(available.json()).toEqual(target());
   });
 
   it('needs someone signed in, and wipes nothing without', async () => {
@@ -217,9 +219,12 @@ describe('POST /api/dev/reset', () => {
   it('refuses when the database named is not the one this server uses', async () => {
     const cookie = await ctx.cookieFor('owner');
     await ctx.db.insert(users).values({ email: 'stray@example.test', displayName: 'Stray' });
-    const wrong = await reset({ cookie }, { database: 'forge_e2e' });
+    const wrong = await reset({ cookie }, { database: 'forge_e2e', port: testPort() });
     expect(wrong.statusCode).toBe(409);
     expect(wrong.json().error.message).toContain(testDatabase());
+    // The same name on another server is another database.
+    const elsewhere = await reset({ cookie }, { database: testDatabase(), port: 54330 });
+    expect(elsewhere.statusCode).toBe(409);
     expect((await reset({ cookie }, {})).statusCode).toBe(422);
     expect(
       await ctx.db.select().from(users).where(eq(users.email, 'stray@example.test')),

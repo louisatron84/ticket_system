@@ -26,8 +26,9 @@ export async function reseed(request: APIRequestContext): Promise<void> {
   // other database refuses, so a run that found the wrong server cannot wipe it.
   const signIn = await request.post(`${API_URL}/api/dev/session`, { data: { key: 'owner' } });
   expect(signIn.status()).toBe(200);
-  const database = new URL(E2E_DATABASE_URL).pathname.slice(1);
-  const response = await request.post(`${API_URL}/api/dev/reset`, { data: { database } });
+  const url = new URL(E2E_DATABASE_URL);
+  const target = { database: url.pathname.slice(1), port: Number(url.port || 5432) };
+  const response = await request.post(`${API_URL}/api/dev/reset`, { data: target });
   expect(response.status(), await response.text()).toBe(204);
 }
 

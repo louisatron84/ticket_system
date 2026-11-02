@@ -75,6 +75,56 @@ for (const stream of [process.stdout, process.stderr]) {
 
 class UsageError extends Error {}
 
+const COMMANDS = ['login', 'logout', 'whoami', 'catalogue', 'cat', 'inspect', 'inbox', 'move'];
+const ALIASES: Record<string, string> = { cat: 'catalogue', jam: 'jammed' };
+
+/** The part of the usage that is about one command, or null for a command that does not exist. */
+export function helpFor(command: string): string | null {
+  const name = ALIASES[command] ?? command;
+  if (!COMMANDS.includes(name) && !isMoveWord(name)) return null;
+  const lines = USAGE.split('\n');
+  const picked: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!lines[i]!.startsWith(`  forge ${name} `) && lines[i] !== `  forge ${name}`) continue;
+    picked.push(lines[i]!);
+    // Its explanation is indented further on the lines that follow.
+    while (lines[i + 1]?.startsWith('      ')) picked.push(lines[(i += 1)]!);
+  }
+  if (isMoveWord(name) || name === 'move') {
+    picked.push('', '  Every move takes -m "text" to add a comment with it (some moves need one).');
+  }
+  return picked.join('\n');
+}
+
+/** Edits from one word to another (insert, delete, change one letter). */
+function distance(a: string, b: string): number {
+  let row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      next[j] = Math.min(
+        row[j]! + 1,
+        next[j - 1]! + 1,
+        row[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    row = next;
+  }
+  return row[b.length]!;
+}
+
+/** The command a typo most likely meant, if one is close enough. */
+export function closestCommand(typed: string): string | null {
+  const known = [...COMMANDS, ...Object.keys(MOVE_WORDS), 'help'];
+  let best: string | null = null;
+  let bestDistance = 3;
+  for (const command of known) {
+    const d = distance(typed.toLowerCase(), command);
+    if (d < bestDistance) [best, bestDistance] = [command, d];
+  }
+  return best;
+}
+
 /**
  * Reads a command's arguments strictly: an option the command does not know, or one missing its
  * value, is a usage error rather than something quietly ignored.
@@ -291,8 +341,22 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
   const command = args.shift();
   try {
     if (!command || command === 'help' || command === '--help' || command === '-h') {
+      // forge help move: just that command.
+      if (command === 'help' && args[0]) {
+        const help = helpFor(args[0]);
+        if (!help) throw new UsageError(`There is no forge ${args[0]}. Run \`forge help\`.`);
+        io.out(help);
+        return OK;
+      }
       io.out(USAGE);
       return command ? OK : USAGE_ERROR;
+    }
+    if (args.includes('--help') || args.includes('-h')) {
+      const help = helpFor(command);
+      if (help) {
+        io.out(help);
+        return OK;
+      }
     }
     if (command === '--version' || command === '-v' || command === 'version') {
       io.out(`forge ${pkg.version}`);
@@ -334,8 +398,11 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
       return result.ok ? OK : FAILED;
     }
     const words = Object.keys(MOVE_WORDS).join(', ');
+    const meant = closestCommand(command);
     throw new UsageError(
-      `Unknown command "${command}". Moves: ${words}. Run \`forge help\` for the rest.`,
+      meant
+        ? `Unknown command "${command}". Did you mean forge ${meant}? Run \`forge help\` for the rest.`
+        : `Unknown command "${command}". Moves: ${words}. Run \`forge help\` for the rest.`,
     );
   } catch (error) {
     io.err(error instanceof Error ? error.message : String(error));

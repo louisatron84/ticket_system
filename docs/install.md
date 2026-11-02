@@ -106,22 +106,24 @@ On macOS and Linux run `npx playwright install chromium` once before the browser
   in this folder's `.data` directory.
 - **Port 3000 or 4000 in use**: stop whatever uses it, or move Forge (below).
 
-## Changing the ports
-
-Each port is set in one place, and whatever points at it must follow:
-
-| What         | Default | Set it with                                               | Then also change                               |
-| ------------ | ------- | --------------------------------------------------------- | ---------------------------------------------- |
-| Web app      | 3000    | `PORT` in the shell that runs `npm run dev`               | `WEB_ORIGIN` in `.env`; `forge login --server` |
-| API          | 4000    | `API_PORT` in `.env`                                      | `API_INTERNAL_URL` in `.env`                   |
-| Dev database | 54329   | `FORGE_DB_PORT` in the shell that runs `npm run db:start` | the port in every `*_DATABASE_URL` in `.env`   |
-
-For example, in PowerShell: `$env:PORT = 3001; npm run dev`, with
-`WEB_ORIGIN=http://localhost:3001,http://127.0.0.1:3001` in `.env`. The browser tests always use
-3100 and 4100.
-
 - **`db:migrate` says the database is not UTF-8**: only an old local database; see
   [setup](setup.md#the-database-must-be-utf-8).
 - **Start the demo data again**: `npm run db:reseed` (wipes every table). The "Reset demo data"
   button in the account menu appears only with `FORGE_DEV_RESET=1` in `.env`, and never works on
   the `forge` database.
+
+## Changing the ports
+
+Every port is set in `.env` (a variable set in the shell wins), and whatever points at it must
+follow:
+
+| What         | Default | Set it with     | Then also change                                                       |
+| ------------ | ------- | --------------- | ---------------------------------------------------------------------- |
+| Web app      | 3000    | `WEB_PORT`      | `WEB_ORIGIN`; `forge login --server`                                   |
+| API          | 4000    | `API_PORT`      | `API_INTERNAL_URL`                                                     |
+| Dev database | 54329   | `FORGE_DB_PORT` | the port in `DATABASE_URL`, `TEST_DATABASE_URL` and `E2E_DATABASE_URL` |
+
+`npm run db:start`, `npm run dev` and `docker compose up` all read them. For example, to move the
+web app to 3001: `WEB_PORT=3001` and `WEB_ORIGIN=http://localhost:3001,http://127.0.0.1:3001`.
+The browser tests always use 3100 and 4100, and refuse to start if something else holds those
+ports (`E2E_REUSE_SERVERS=1` uses servers you started for them yourself).

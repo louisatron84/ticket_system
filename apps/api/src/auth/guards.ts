@@ -63,7 +63,15 @@ export const requireUser: preHandlerAsyncHookHandler = async (request) => {
  *   - member without the permission         -> 403
  * Handlers then take the organisation id from `request.org`, never from the URL or body.
  */
-export function orgAccess(db: Db, permission: Permission): preHandlerAsyncHookHandler {
+export function orgAccess(
+  db: Db,
+  permission: Permission,
+  options: {
+    /** The write changes only the caller's own state (marking notifications read): a read-only
+     * token may make it, since reading includes saying what you have read. */
+    ownState?: boolean;
+  } = {},
+): preHandlerAsyncHookHandler {
   return async (request) => {
     const { token } = request;
     const userId = request.auth?.user.id ?? token?.userId;
@@ -75,7 +83,7 @@ export function orgAccess(db: Db, permission: Permission): preHandlerAsyncHookHa
     if (token) {
       // A token belongs to one workspace; any other looks absent, as for a non-member.
       if (token.organisationId !== orgId) throw notFound();
-      if (token.scope === 'read' && !SAFE_METHODS.has(request.method)) {
+      if (token.scope === 'read' && !SAFE_METHODS.has(request.method) && !options.ownState) {
         throw new AppError('forbidden', 'This token is read-only.', 403);
       }
       if (!TOKEN_PERMISSIONS.includes(permission)) {

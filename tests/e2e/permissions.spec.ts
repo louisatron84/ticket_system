@@ -82,6 +82,7 @@ test.describe('what each role sees', () => {
       'Tickets',
       'Triage',
       'Members',
+      'Ticket settings',
     ]);
 
     await switchTo(page, 'restricted');

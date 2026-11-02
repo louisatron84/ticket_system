@@ -151,6 +151,26 @@ describe('command-line tokens', () => {
     expect(message(response)).toBe('Command-line tokens cannot do that. Use the web app.');
   });
 
+  it('read-only, can still mark its own inbox read, and change nothing else', async () => {
+    const { token } = await makeToken('readonly', 'write');
+    const headers = { authorization: `Bearer ${token}` };
+    const read = await ctx.app.inject({
+      method: 'POST',
+      url: `${org()}/notifications/read`,
+      headers,
+      payload: { all: true },
+    });
+    expect(read.statusCode, read.body).toBe(200);
+    const comment = await ctx.app.inject({
+      method: 'POST',
+      url: `${org()}/tickets/WEB-1/comments`,
+      headers,
+      payload: { body: 'hello' },
+    });
+    expect(comment.statusCode).toBe(403);
+    expect(message(comment)).toBe('This token is read-only.');
+  });
+
   it('cannot plan: no cycles, milestones, workspace labels or ranking', async () => {
     const { token } = await makeToken('owner', 'write');
     const attempts: [string, string, object][] = [

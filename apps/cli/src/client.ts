@@ -54,6 +54,13 @@ export async function call<T>(
       code === 'validation_failed' && details && details.length > 0
         ? details.map((detail) => detail.message).join('\n')
         : undefined;
+    // No Forge error body on a server error: the web app answered, but not with the API behind it.
+    if (!message && response.status >= 500) {
+      throw new ServerError(
+        response.status,
+        `${server} answered, but Forge's API behind it did not (${response.status}). Is the API running?`,
+      );
+    }
     throw new ServerError(
       response.status,
       reason ?? message ?? `The server said ${response.status}.`,

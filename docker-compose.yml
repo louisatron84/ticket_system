@@ -1,5 +1,6 @@
 # Alternative to `npm run db:start` for machines with Docker.
-# Same credentials and host port as .env.example, so DATABASE_URL does not change.
+# Same credentials and host port as .env.example (FORGE_DB_PORT in .env moves it, as for
+# npm run db:start), so DATABASE_URL does not change.
 services:
   db:
     image: postgres:18
@@ -9,7 +10,7 @@ services:
       POSTGRES_PASSWORD: forge
       POSTGRES_DB: forge
     ports:
-      - '54329:5432'
+      - '${FORGE_DB_PORT:-54329}:5432'
     volumes:
       # Postgres 18+ images keep versioned data directories under /var/lib/postgresql.
       - forge-db:/var/lib/postgresql

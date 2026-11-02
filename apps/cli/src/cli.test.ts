@@ -6,7 +6,7 @@ import { call } from './client';
 import { checkServer, writeConfig, type CliConfig } from './config';
 import { flameLines, wantsColour } from './flame';
 import { checkStarted } from './login';
-import { main } from './main';
+import { closestCommand, helpFor, main } from './main';
 import { MOVE_WORDS, findStatus, isMoveWord, moveTicket, ticketKey } from './moves';
 import { formatTicket, listTickets } from './tickets';
 
@@ -277,11 +277,26 @@ describe('inspect lists only moves that would go through', () => {
 
   it('says why a move is not possible now, and what a move needs', () => {
     const text = formatTicket(ticket, 'http://localhost:3000', 'acme').join('\n');
-    expect(text).toContain('forge hammer WEB-4 (In the Forge)');
+    expect(text).toContain('forge hammer WEB-4  # In the Forge');
     expect(text).toContain("Quenched: not now. WEB-4 can't be quenched while API-9 is open.");
     expect(text).not.toContain('forge quench WEB-4');
-    expect(text).toContain('forge scrap WEB-4 -m "why" (Scrapped)');
-    expect(text).toContain('forge move WEB-4 "QA check" (QA check)');
+    expect(text).toContain('forge scrap WEB-4 -m "why"  # Scrapped');
+    expect(text).toContain('forge move WEB-4 "QA check"  # QA check');
+  });
+
+  it('never puts a name that could run a command into a line to paste', () => {
+    const hostile = {
+      ...ticket,
+      allowedTransitions: [
+        { key: 'qa', name: 'QA $(id)', rules: [], refusal: null },
+        { key: 'x-y', name: 'Ship `calc` & go', rules: [], refusal: null },
+      ],
+    };
+    const lines = formatTicket(hostile, 'http://localhost:3000', 'acme');
+    const text = lines.join('\n');
+    expect(lines).toContain('  forge move WEB-4 qa');
+    expect(text).toContain('One more status, whose name is not safe to paste');
+    expect(text).not.toMatch(/\$\(|`|&/);
   });
 
   it('offers no moves to a read-only token', () => {
@@ -345,5 +360,34 @@ describe('talking to the server', () => {
     });
     expect(code).toBe(2);
     expect(err.join('\n')).toBe('Acme has no project NOPE. Its projects: WEB, API.');
+  });
+});
+
+describe('help and typos', () => {
+  it('helps with one command, aliases included', () => {
+    expect(helpFor('move')).toContain('forge move <KEY> <STATUS>');
+    expect(helpFor('cat')).toContain('forge catalogue');
+    expect(helpFor('hammer')).toContain('-m "text"');
+    expect(helpFor('nope')).toBeNull();
+  });
+
+  it('suggests the command a typo meant, and nothing for a far-off word', () => {
+    expect(closestCommand('hamer')).toBe('hammer');
+    expect(closestCommand('inspct')).toBe('inspect');
+    expect(closestCommand('Login')).toBe('login');
+    expect(closestCommand('deploy')).toBeNull();
+  });
+});
+
+describe('a server with no API behind it', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('says the API did not answer, not just a status number', async () => {
+    vi.stubGlobal('fetch', async () => new Response('Internal Server Error', { status: 500 }));
+    await expect(call('http://localhost:3000', '/api/v1/cli/whoami')).rejects.toThrow(
+      "http://localhost:3000 answered, but Forge's API behind it did not (500). Is the API running?",
+    );
   });
 });

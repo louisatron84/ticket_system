@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
 import pkg from '../package.json' with { type: 'json' };
 
@@ -54,6 +55,16 @@ function isOrigin(value: string): boolean {
   }
 }
 
+/** 'loopback', or an IPv4 or IPv6 address with an optional prefix length that fits it. */
+function isProxyEntry(entry: string): boolean {
+  if (entry === 'loopback') return true;
+  const [address, prefix, ...rest] = entry.split('/');
+  const family = isIP(address ?? '');
+  if (family === 0 || rest.length > 0) return false;
+  if (prefix === undefined) return true;
+  return /^\d{1,3}$/.test(prefix) && Number(prefix) <= (family === 4 ? 32 : 128);
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_HOST: z.string().default('127.0.0.1'),
@@ -79,9 +90,7 @@ const envSchema = z.object({
   TRUST_PROXY: z
     .string()
     .transform((value) => value.split(',').map((entry) => entry.trim()))
-    .refine((entries) =>
-      entries.every((entry) => entry === 'loopback' || /^[0-9a-fA-F.:]+(\/\d{1,3})?$/.test(entry)),
-    )
+    .refine((entries) => entries.every(isProxyEntry))
     .optional(),
 });
 

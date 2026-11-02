@@ -24,6 +24,7 @@ cp .env.example .env            # PowerShell: Copy-Item .env.example .env
 | `E2E_DATABASE_URL`  | `postgres://forge:forge@localhost:54329/forge_e2e`  | browser tests (they wipe it)             |
 | `API_HOST`          | `127.0.0.1`                                         | API                                      |
 | `API_PORT`          | `4000`                                              | API                                      |
+| `WEB_PORT`          | `3000`                                              | web app                                  |
 | `LOG_LEVEL`         | `info`                                              | API                                      |
 | `FORGE_DEV_AUTH`    | `1` in `.env.example`, off if unset                 | API: development account switcher        |
 | `WEB_ORIGIN`        | `http://localhost:3000,http://127.0.0.1:3000`       | API: origins allowed to make writes      |

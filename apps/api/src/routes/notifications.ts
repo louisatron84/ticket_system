@@ -56,7 +56,7 @@ export function registerNotificationRoutes(
 
   app.post(
     '/api/v1/orgs/:orgId/notifications/read',
-    { preHandler: orgAccess(db, 'tickets.view') },
+    { preHandler: orgAccess(db, 'tickets.view', { ownState: true }) },
     async (request): Promise<{ unread: number }> => {
       const body = parseBody(markReadBodySchema, request.body);
       const unread = await markRead(db, {

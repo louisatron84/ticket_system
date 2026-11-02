@@ -28,14 +28,19 @@ export function DevSwitcher({
   const [resetting, setResetting] = useState(false);
   // Reset wipes the whole database, so it exists only when the API was started with it switched on.
   // It says which database it would wipe, and the reset names it back.
-  const [database, setDatabase] = useState<string | null>(null);
+  const [target, setTarget] = useState<{ database: string; port: number | null } | null>(null);
   useEffect(() => {
     let current = true;
     fetch('/api/dev/reset', { credentials: 'same-origin' })
       .then(async (response) => {
         if (!response.ok) return;
-        const body = (await response.json()) as { database?: unknown };
-        if (current && typeof body.database === 'string') setDatabase(body.database);
+        const body = (await response.json()) as { database?: unknown; port?: unknown };
+        if (current && typeof body.database === 'string') {
+          setTarget({
+            database: body.database,
+            port: typeof body.port === 'number' ? body.port : null,
+          });
+        }
       })
       .catch(() => {});
     return () => {
@@ -57,7 +62,7 @@ export function DevSwitcher({
   async function reset() {
     setResetting(true);
     try {
-      await apiFetch('/api/dev/reset', { method: 'POST', json: { database } });
+      await apiFetch('/api/dev/reset', { method: 'POST', json: target });
       window.location.assign('/login');
     } catch (error) {
       toast.error(messageOf(error));
@@ -105,7 +110,7 @@ export function DevSwitcher({
           );
         })}
       </ul>
-      {database && (
+      {target && (
         <button
           type="button"
           onClick={() => setConfirmingReset(true)}
@@ -123,8 +128,8 @@ export function DevSwitcher({
         onConfirm={reset}
         onCancel={() => setConfirmingReset(false)}
       >
-        This deletes every record in the database {database} and recreates the seven test accounts.
-        You will be signed out. It cannot be undone.
+        This deletes every record in the database {target?.database} and recreates the seven test
+        accounts. You will be signed out. It cannot be undone.
       </ConfirmDialog>
     </section>
   );

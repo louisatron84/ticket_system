@@ -39,6 +39,10 @@ describe('loadConfig', () => {
       ['10.0.0.5', '192.168.0.0/16'],
     );
     expect(() => loadConfig({ ...validEnv, TRUST_PROXY: 'everyone' })).toThrow(/TRUST_PROXY/);
+    for (const bad of ['10.0.0.0/99', '10.0.0.0/8/8', '::1/129', '999.1.1.1', '10.0.0.0/']) {
+      expect(() => loadConfig({ ...validEnv, TRUST_PROXY: bad }), bad).toThrow(/TRUST_PROXY/);
+    }
+    expect(loadConfig({ ...validEnv, TRUST_PROXY: 'fd00::/8' }).trustProxy).toEqual(['fd00::/8']);
   });
 
   it('defaults the log level to silent under NODE_ENV=test', () => {

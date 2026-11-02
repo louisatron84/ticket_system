@@ -85,7 +85,7 @@ export function formatCatalogue(list: { items: Summary[]; total: number }): stri
     `${'KEY'.padEnd(10)} ${'STATUS'.padEnd(13)} ${'HEAT'.padEnd(9)} ${'WHO'.padEnd(16)} TITLE`,
   ];
   for (const t of list.items) {
-    const flags = [t.openBlockerKeys.length > 0 ? 'jammed by ' + t.openBlockerKeys.join(',') : '']
+    const flags = [t.openBlockerKeys.length > 0 ? 'blocked by ' + t.openBlockerKeys.join(',') : '']
       .filter(Boolean)
       .join(' ');
     lines.push(
@@ -106,11 +106,20 @@ export function formatCatalogue(list: { items: Summary[]; total: number }): stri
   return lines;
 }
 
-/** A move as a command: its word when it has one, or `forge move` with the status name. */
-function moveCommand(key: string, status: Ref): string {
+/** Text that means the same, and runs nothing, when pasted into bash, zsh, PowerShell or cmd. */
+const SAFE_WORDS = /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/;
+
+/**
+ * A move as a command to copy: its word when it has one, else `forge move` with the status name
+ * (quoted) or key. Status names are chosen by people, so one that is not plain words is never
+ * put into a command: `$(...)` or a backtick in it would run when pasted. Null when neither is safe.
+ */
+function moveCommand(key: string, status: Ref): string | null {
   const word = WORD_FOR_KEY.get(status.key);
   if (word) return `forge ${word} ${key}`;
-  return `forge move ${key} ${/^[\w-]+$/.test(status.name) ? status.name : `"${status.name}"`}`;
+  if (SAFE_WORDS.test(status.name)) return `forge move ${key} "${status.name}"`;
+  if (/^[a-z0-9_]+$/.test(status.key)) return `forge move ${key} ${status.key}`;
+  return null;
 }
 
 /** One ticket as readable text: the parts a reviewer needs, then what can be done next. */
@@ -153,7 +162,14 @@ export function formatTicket(
         continue;
       }
       const needsComment = status.rules?.includes('needs_comment') ? ' -m "why"' : '';
-      lines.push(`  ${moveCommand(t.key, status)}${needsComment} (${status.name})`);
+      const command = moveCommand(t.key, status);
+      // A line offered for copying holds only plain words: a name that is not is left off it.
+      const label = SAFE_WORDS.test(status.name) ? `  # ${status.name}` : '';
+      lines.push(
+        command
+          ? `  ${command}${needsComment}${label}`
+          : '  One more status, whose name is not safe to paste into a shell: move it in the web app.',
+      );
     }
   }
   lines.push('', `${server}/w/${slug}/tickets/${t.key}`);

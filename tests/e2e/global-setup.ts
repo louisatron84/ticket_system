@@ -7,6 +7,16 @@ export default function globalSetup(): void {
   if (!/_e2e(\?|$)/.test(E2E_DATABASE_URL)) {
     throw new Error('E2E_DATABASE_URL must point at a database whose name ends in _e2e.');
   }
+  // Nor the development database, whatever it is called: same server, same name means same data.
+  const where = (url: string) => {
+    const parsed = new URL(url);
+    return `${parsed.hostname}:${parsed.port || '5432'}/${parsed.pathname.slice(1)}`;
+  };
+  if (process.env.DATABASE_URL && where(process.env.DATABASE_URL) === where(E2E_DATABASE_URL)) {
+    throw new Error(
+      'E2E_DATABASE_URL is the same database as DATABASE_URL. Give the tests their own.',
+    );
+  }
   execSync('npm run db:migrate && npm run db:reseed', {
     stdio: 'inherit',
     env: { ...process.env, DATABASE_URL: E2E_DATABASE_URL, NODE_ENV: 'development' },

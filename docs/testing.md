@@ -139,7 +139,10 @@ run one at a time.
 ## End-to-end specifics
 
 - The browser tests start their own API (port 4100) and web app (port 3100, build folder
-  `.next-e2e`) against `forge_e2e`, so they can run while `npm run dev` is up.
+  `.next-e2e`) against `forge_e2e`, so they can run while `npm run dev` is up. If something already
+  holds 3100 or 4100 they stop instead of using it, since it may be another copy of Forge; set
+  `E2E_REUSE_SERVERS=1` to use servers you started for the tests yourself. `E2E_DATABASE_URL` is
+  read from `.env` and must end in `_e2e` and differ from `DATABASE_URL`.
 - Windows uses the Edge that ships with the OS, so no browser download is needed. On macOS or Linux
   run `npx playwright install chromium` once, or set `E2E_CHANNEL` to an installed channel.
 - Tests wait until the page has hydrated before clicking (`hydrated()` in `tests/e2e/helpers.ts`);

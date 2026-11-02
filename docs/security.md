@@ -59,7 +59,8 @@ industry standard (the owner's choice; stronger measures are listed in
   so no token is ever stored waiting. A login started from another address than the approver's is
   flagged on the page and Allow needs an extra "I started this myself" (enforced by the API), since
   that is what a phished link looks like. A role that can only read always gets a read-only token,
-  whatever was asked. Saved views cannot be changed with a token. Starting a login is limited to
+  whatever was asked; a read-only token may still mark its owner's own notifications read, the one
+  write that changes nothing but their own inbox. Saved views cannot be changed with a token. Starting a login is limited to
   10 per address per 10 minutes (and 500 waiting in all; see **Addresses** below),
   polling to 60 a minute (and `slow_down` if faster than every 3 seconds), and code lookups and
   decisions to 5 a minute per person.
@@ -67,7 +68,9 @@ industry standard (the owner's choice; stronger measures are listed in
   owner-only (mode `0600`; on Windows the inherited permissions are removed and only the current
   user is granted access). The command refuses plain `http://` to anything but `localhost` and
   `127.0.0.1`, does not follow redirects, gives up on a request after 30 seconds, and reads a
-  pasted token without echoing it. What a server sends at sign-in is checked before use: the code
+  pasted token without echoing it. A command `forge inspect` offers for copying contains only plain
+  words: a status name with anything else in it (`$(...)`, backticks, `&`) is left off the line,
+  and the command names the status by its key, or is not offered. What a server sends at sign-in is checked before use: the code
   must look like a code and the approval link must be an `http(s)` page on the server's own host,
   or nothing is printed or opened (so a fake server cannot open a file, a program or another site).
 - **Addresses**: the API takes a caller's address from the connection. It believes
@@ -189,6 +192,9 @@ Other rules the API enforces, each with a test that does not go through the page
   the same reference rules as a new ticket. Tokens cannot save views and do not reach these routes.
 - **An archived project is frozen.** Editing, moving, archiving, commenting on, ticking criteria
   of, attaching to, linking or triaging any of its tickets is a `409` until it is unarchived.
+  A link is removed from the ticket whose page it is on, which must be open (not archived, nor in
+  an archived project); the ticket at the other end may be either, so an archived blocker never
+  blocks for good.
 - **Removing needs the permission that adding does.** Deleting a comment needs `tickets.comment`
   (and being its author, or `tickets.edit`); removing an attachment needs `tickets.edit`. A person
   whose role was lowered keeps nothing they could do before.
@@ -247,9 +253,11 @@ real sign-in must replace it before Forge is reachable by anyone else. The most 
 **Reset demo data** (wipe every table and reseed, signing everyone out), is a separate switch,
 `FORGE_DEV_RESET`, off by default; its route does not exist without it, the button only appears
 with it, and it always refuses the main `forge` database. It also needs someone signed in, and the
-caller must name the database it means to wipe: a server using any other database answers `409`
-and wipes nothing. The browser tests name `forge_e2e`, so a test run that finds some other copy of
-Forge on its port cannot wipe that copy. `npm run db:reseed` remains the
+caller must name the database it means to wipe and the port of the server holding it: a server
+using any other database answers `409` and wipes nothing. The browser tests name `forge_e2e` and
+its port, and start their own servers rather than use whatever holds 3100 and 4100, so a test run
+cannot wipe another copy of Forge. Their setup also refuses a test database that is the
+development database (`DATABASE_URL`). `npm run db:reseed` remains the
 deliberate way to start again.
 
 ## Audit trail

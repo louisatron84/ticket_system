@@ -52,6 +52,7 @@ test.describe('Workspace overview', () => {
       'Tickets',
       'Triage',
       'Members',
+      'Ticket settings',
     ]);
   });
 });

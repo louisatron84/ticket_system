@@ -193,10 +193,14 @@ describe('ticket links', () => {
     }
   });
 
-  it('removes a link from either side, even when one side is archived', async () => {
+  it('removes a link from the open side when the other is archived, never from the archived', async () => {
     const detail = await linkOk('WEB-1', 'blocks', 'WEB-2');
     const linkId = detail.links[0]!.id;
     expect((await archive('WEB-1')).statusCode).toBe(200);
+
+    const fromArchived = await removeLink('WEB-1', linkId);
+    expect(fromArchived.statusCode).toBe(409);
+    expect(apiErrorSchema.parse(fromArchived.json()).error.message).toBe(ARCHIVED_MESSAGE);
 
     const response = await removeLink('WEB-2', linkId);
     expect(response.statusCode, response.body).toBe(204);

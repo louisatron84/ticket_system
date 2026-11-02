@@ -102,16 +102,6 @@ export function assertWritable(ticket: LockedTicket) {
   }
 }
 
-/**
- * Refuses a ticket whose project is archived. Taking a ticket out of a link with an archived
- * ticket stays allowed (that only tidies up), but an archived project is frozen as a whole.
- */
-function assertProjectOpen(ticket: LockedTicket) {
-  if (ticket.projectArchived) {
-    throw new AppError('conflict', `${ticket.key} is in an archived project.`, 409);
-  }
-}
-
 /** Keys from the ticket's parent up to the top, nearest first. */
 async function ancestorIds(tx: Executor, ticketId: string): Promise<string[]> {
   const result = await tx.execute<{ id: string }>(sql`
@@ -365,7 +355,7 @@ export async function addLink(
   });
 }
 
-/** Removes a link that touches the ticket in the address. Allowed even if one side is archived. */
+/** Removes a link from the ticket in the address, which must be open; the other side may not be. */
 export async function removeLink(
   db: Db,
   input: { context: TicketContext; ticketKey: string; linkId: string },
@@ -392,9 +382,9 @@ export async function removeLink(
       link.sourceKey,
       link.targetKey,
     ]);
-    // The ticket being edited must be in an open project. The other one may sit in an archived
-    // project: otherwise a blocker archived with its project would block this ticket for good.
-    assertProjectOpen(locked.get(ticketKey)!);
+    // The ticket being edited must itself be open to change (not archived, nor in an archived
+    // project). The other may be either: otherwise an archived blocker would block for good.
+    assertWritable(locked.get(ticketKey)!);
     await tx.delete(ticketLinks).where(eq(ticketLinks.id, link.id));
     await recordLink(
       tx,
