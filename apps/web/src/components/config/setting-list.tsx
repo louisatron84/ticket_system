@@ -151,7 +151,12 @@ export function SettingList({
                 )
               }
             />
-            <span className="font-mono text-xs text-muted">{item.key}</span>
+            <span
+              className="font-mono text-xs text-muted"
+              title="The fixed key: it never changes when the name does. Queries and the API take either."
+            >
+              key {item.key}
+            </span>
             <span className="text-xs text-muted">{ticketsWord(item.ticketCount)}</span>
             <span className="ml-auto">
               {item.active ? (

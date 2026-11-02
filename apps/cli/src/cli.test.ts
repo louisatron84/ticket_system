@@ -1,9 +1,14 @@
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { checkServer, type CliConfig } from './config';
+import { call } from './client';
+import { checkServer, writeConfig, type CliConfig } from './config';
 import { flameLines, wantsColour } from './flame';
+import { checkStarted } from './login';
 import { main } from './main';
-import { MOVE_WORDS, findStatus, isMoveWord, ticketKey } from './moves';
-import { listTickets } from './tickets';
+import { MOVE_WORDS, findStatus, isMoveWord, moveTicket, ticketKey } from './moves';
+import { formatTicket, listTickets } from './tickets';
 
 describe('move words', () => {
   it('map the owner’s words to status keys', () => {
@@ -200,5 +205,145 @@ describe('catalogue with a query', () => {
     ).rejects.toThrow(
       'There is no filter called statsu.\ndue: is one of overdue, today, week, none.',
     );
+  });
+});
+
+describe('what a server sends at sign-in', () => {
+  const good = {
+    deviceCode: 'secret',
+    userCode: 'ABCD-1234',
+    verificationUrl: 'http://localhost:3000/cli/approve?code=ABCD-1234',
+    expiresIn: 600,
+    interval: 3,
+  };
+
+  it('is opened only as a web page on the server it came from', () => {
+    expect(checkStarted('http://localhost:3000', good).verificationUrl).toBe(good.verificationUrl);
+    for (const verificationUrl of [
+      'file:///C:/Windows/System32/calc.exe',
+      'javascript:alert(1)',
+      'ms-settings:',
+      'https://evil.test/cli/approve',
+      'http://user:pass@localhost:3000/',
+      'not a url',
+    ]) {
+      expect(() => checkStarted('http://localhost:3000', { ...good, verificationUrl })).toThrow(
+        /Nothing was opened/,
+      );
+    }
+  });
+
+  it('counts every name for this machine as the same host', () => {
+    expect(checkStarted('http://127.0.0.1:3000', good).verificationUrl).toBe(good.verificationUrl);
+  });
+
+  it('never prints a code that is not a code', () => {
+    expect(() =>
+      checkStarted('http://localhost:3000', { ...good, userCode: '\u001b]0;pwned\u0007' }),
+    ).toThrow(/Nothing was opened/);
+  });
+});
+
+describe('inspect lists only moves that would go through', () => {
+  const ticket = {
+    key: 'WEB-4',
+    title: 'Fix it',
+    version: 1,
+    status: { id: 's1', key: 'open', name: 'Warming', category: 'not_started' },
+    priority: { key: 'normal', name: 'Flame' },
+    assignee: null,
+    parentKey: null,
+    openBlockerKeys: ['API-9'],
+    criteria: { done: 0, total: 0 },
+    type: { key: 'task', name: 'Task' },
+    project: { key: 'WEB', name: 'Web' },
+    goal: '',
+    description: '',
+    criteriaItems: [],
+    dueDate: null,
+    archivedAt: null,
+    allowedTransitions: [
+      { key: 'in_progress', name: 'In the Forge', rules: [], refusal: null },
+      {
+        key: 'done',
+        name: 'Quenched',
+        rules: [],
+        refusal: "WEB-4 can't be quenched while API-9 is open.",
+      },
+      { key: 'cancelled', name: 'Scrapped', rules: ['needs_comment'], refusal: null },
+      { key: 'qa_check', name: 'QA check', rules: [], refusal: null },
+    ],
+  };
+
+  it('says why a move is not possible now, and what a move needs', () => {
+    const text = formatTicket(ticket, 'http://localhost:3000', 'acme').join('\n');
+    expect(text).toContain('forge hammer WEB-4 (In the Forge)');
+    expect(text).toContain("Quenched: not now. WEB-4 can't be quenched while API-9 is open.");
+    expect(text).not.toContain('forge quench WEB-4');
+    expect(text).toContain('forge scrap WEB-4 -m "why" (Scrapped)');
+    expect(text).toContain('forge move WEB-4 "QA check" (QA check)');
+  });
+
+  it('offers no moves to a read-only token', () => {
+    const text = formatTicket(ticket, 'http://localhost:3000', 'acme', { readOnly: true }).join(
+      '\n',
+    );
+    expect(text).toContain('None with this token: it is read only.');
+    expect(text).not.toContain('forge hammer');
+  });
+});
+
+describe('talking to the server', () => {
+  const config: CliConfig = {
+    server: 'http://localhost:3001',
+    token: 'forge_test',
+    user: { displayName: 'Dana', email: 'dana@acme.test' },
+    workspace: { id: 'org-1', slug: 'acme', name: 'Acme' },
+    scope: 'write',
+    expiresAt: '2099-01-01T00:00:00Z',
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.FORGE_CONFIG_DIR;
+  });
+
+  it('gives up on a server that does not answer, instead of hanging', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new DOMException('The operation timed out.', 'TimeoutError');
+    });
+    await expect(call(config.server, '/api/v1/cli/whoami')).rejects.toThrow(
+      /did not answer within 30 seconds/,
+    );
+  });
+
+  it('does not call a move that changes nothing a success', async () => {
+    vi.stubGlobal('fetch', async (url: string) =>
+      Response.json(
+        url.includes('/tickets/')
+          ? {
+              key: 'WEB-1',
+              version: 3,
+              status: { id: 's1', key: 'open', name: 'Warming' },
+              project: { key: 'WEB' },
+            }
+          : { statuses: [{ id: 's1', key: 'open', name: 'Warming' }] },
+      ),
+    );
+    const result = await moveTicket(config, { word: 'warm' }, 'WEB-1');
+    expect(result).toEqual({ ok: false, message: 'WEB-1 is already in Warming. Nothing changed.' });
+  });
+
+  it('names an unknown project instead of finding no tickets', async () => {
+    process.env.FORGE_CONFIG_DIR = await mkdtemp(path.join(tmpdir(), 'forge-cli-'));
+    await writeConfig(config);
+    vi.stubGlobal('fetch', async () => Response.json([{ key: 'WEB' }, { key: 'API' }]));
+    const err: string[] = [];
+    const code = await main(['cat', '--project', 'nope'], {
+      out: () => {},
+      err: (line) => err.push(line),
+    });
+    expect(code).toBe(2);
+    expect(err.join('\n')).toBe('Acme has no project NOPE. Its projects: WEB, API.');
   });
 });

@@ -37,7 +37,8 @@ Moving
   forge jammed <KEY>       to Jammed (also: forge jam)
   forge quench <KEY>       to Quenched
   forge scrap <KEY>        to Scrapped
-  forge move <KEY> <STATUS> to any status, by its name or key (forge move WEB-1 QA)
+  forge move <KEY> <STATUS> to any status, by its name or key
+                           (forge move WEB-1 "In the Forge", or a status your project added)
 
   Every move takes -m "text" to add a comment with it (some moves need one).
 
@@ -190,6 +191,22 @@ async function catalogue(args: string[], io: Io): Promise<number> {
     throw new UsageError('--limit must be a whole number from 1 to 100.');
   }
   const config = await signedIn();
+  // An unknown project is a mistake to name, not an empty list.
+  const projectText = parsed.options.get('--project');
+  if (projectText) {
+    const projects = await call<{ key: string }[]>(
+      config.server,
+      `/api/v1/orgs/${config.workspace.id}/projects`,
+      { token: config.token },
+    );
+    if (!projects.some((project) => project.key === projectText.toUpperCase())) {
+      throw new UsageError(
+        `${config.workspace.name} has no project ${projectText.toUpperCase()}. Its projects: ${projects
+          .map((project) => project.key)
+          .join(', ')}.`,
+      );
+    }
+  }
   // A status by the name people see (--status Warming), its key, or a move word (--status hammer).
   const statusText = parsed.options.get('--status');
   let status: string | undefined;
@@ -304,7 +321,9 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         const [first, ...rest] = parsed.positional;
         const key = first ? ticketKey(first) : null;
         if (!key || rest.length === 0) {
-          throw new UsageError('Use forge move <KEY> <STATUS>, e.g. forge move WEB-1 QA');
+          throw new UsageError(
+            'Use forge move <KEY> <STATUS>, e.g. forge move WEB-1 "In the Forge"',
+          );
         }
         result = await moveTicket(await signedIn(), { status: rest.join(' ') }, key, comment);
       } else {

@@ -13,7 +13,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { recordAudit } from '../audit';
-import { orgAccess } from '../auth/guards';
+import { orgAccess, refuseTokens } from '../auth/guards';
 import { isUniqueViolation } from '../db-errors';
 import { AppError } from '../errors';
 import { parseBody } from '../validation';
@@ -132,62 +132,66 @@ export function registerMilestoneRoutes(app: FastifyInstance, deps: { db: Db }):
     return listOf(db, project);
   });
 
-  app.post(base, { preHandler: orgAccess(db, 'tickets.edit') }, async (request, reply) => {
-    const body = parseBody(createMilestoneBodySchema, request.body);
-    const org = request.org!;
-    try {
-      const result = await db.transaction(async (tx) => {
-        const project = await projectOf(tx, org.organisationId, request, true);
-        if (project.archivedAt) throw archivedError();
-        const [count] = await tx
-          .select({ count: sql<number>`count(*)::int` })
-          .from(milestones)
-          .where(eq(milestones.projectId, project.id));
-        if ((count?.count ?? 0) >= MAX_MILESTONES) {
-          throw new AppError(
-            'conflict',
-            `A project can have at most ${MAX_MILESTONES} milestones. Delete one that is not used.`,
-            409,
-          );
-        }
-        const [row] = await tx
-          .insert(milestones)
-          .values({
+  app.post(
+    base,
+    { preHandler: [refuseTokens, orgAccess(db, 'tickets.edit')] },
+    async (request, reply) => {
+      const body = parseBody(createMilestoneBodySchema, request.body);
+      const org = request.org!;
+      try {
+        const result = await db.transaction(async (tx) => {
+          const project = await projectOf(tx, org.organisationId, request, true);
+          if (project.archivedAt) throw archivedError();
+          const [count] = await tx
+            .select({ count: sql<number>`count(*)::int` })
+            .from(milestones)
+            .where(eq(milestones.projectId, project.id));
+          if ((count?.count ?? 0) >= MAX_MILESTONES) {
+            throw new AppError(
+              'conflict',
+              `A project can have at most ${MAX_MILESTONES} milestones. Delete one that is not used.`,
+              409,
+            );
+          }
+          const [row] = await tx
+            .insert(milestones)
+            .values({
+              organisationId: org.organisationId,
+              projectId: project.id,
+              name: body.name,
+              description: body.description ?? '',
+              targetDate: body.targetDate ?? null,
+              health: body.health ?? 'on_track',
+              createdBy: org.actorUserId,
+            })
+            .returning();
+          await recordAudit(tx, {
             organisationId: org.organisationId,
-            projectId: project.id,
-            name: body.name,
-            description: body.description ?? '',
-            targetDate: body.targetDate ?? null,
-            health: body.health ?? 'on_track',
-            createdBy: org.actorUserId,
-          })
-          .returning();
-        await recordAudit(tx, {
-          organisationId: org.organisationId,
-          actorUserId: org.actorUserId,
-          action: 'milestone.created',
-          targetType: 'milestone',
-          targetId: row!.id,
-          after: { project: project.key, ...auditOf(row!) },
-          requestId: request.id,
-          source: 'user',
-          outcome: 'success',
+            actorUserId: org.actorUserId,
+            action: 'milestone.created',
+            targetType: 'milestone',
+            targetId: row!.id,
+            after: { project: project.key, ...auditOf(row!) },
+            requestId: request.id,
+            source: 'user',
+            outcome: 'success',
+          });
+          return { list: await listOf(tx, project), id: row!.id };
         });
-        return { list: await listOf(tx, project), id: row!.id };
-      });
-      reply.status(201);
-      return result.list;
-    } catch (error) {
-      if (isUniqueViolation(error, 'milestones_project_name_unique')) {
-        throw nameTaken((request.params as { projectKey: string }).projectKey, body.name);
+        reply.status(201);
+        return result.list;
+      } catch (error) {
+        if (isUniqueViolation(error, 'milestones_project_name_unique')) {
+          throw nameTaken((request.params as { projectKey: string }).projectKey, body.name);
+        }
+        throw error;
       }
-      throw error;
-    }
-  });
+    },
+  );
 
   app.patch(
     `${base}/:milestoneId`,
-    { preHandler: orgAccess(db, 'tickets.edit') },
+    { preHandler: [refuseTokens, orgAccess(db, 'tickets.edit')] },
     async (request) => {
       const body = parseBody(updateMilestoneBodySchema, request.body);
       const milestoneId = milestoneIdParam(request);
@@ -250,7 +254,7 @@ export function registerMilestoneRoutes(app: FastifyInstance, deps: { db: Db }):
   // so the tickets' history keeps meaning something.
   app.delete(
     `${base}/:milestoneId`,
-    { preHandler: orgAccess(db, 'tickets.edit') },
+    { preHandler: [refuseTokens, orgAccess(db, 'tickets.edit')] },
     async (request) => {
       const milestoneId = milestoneIdParam(request);
       const org = request.org!;
