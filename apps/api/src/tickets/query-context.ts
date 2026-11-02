@@ -19,7 +19,6 @@ import {
 } from '@forge/shared';
 import { and, asc, eq } from 'drizzle-orm';
 import { AppError } from '../errors';
-import { together } from '../together';
 
 /** Statuses and the like named the same way in several projects are listed once. */
 const distinct = <T extends { key: string; name: string }>(rows: T[]) => {
@@ -50,58 +49,50 @@ export async function queryContextFor(
     cycleRows,
     projectRows,
     labelRows,
-  ] = await together(executor, [
-    () =>
-      executor
-        .select({ key: projectStatuses.key, name: projectStatuses.name })
-        .from(projectStatuses)
-        .where(eq(projectStatuses.organisationId, org))
-        .orderBy(asc(projectStatuses.sortOrder)),
-    () =>
-      executor
-        .select({ key: ticketTypes.key, name: ticketTypes.name })
-        .from(ticketTypes)
-        .where(and(eq(ticketTypes.organisationId, org), eq(ticketTypes.isActive, true)))
-        .orderBy(asc(ticketTypes.sortOrder)),
-    () =>
-      executor
-        .select({ key: priorities.key, name: priorities.name })
-        .from(priorities)
-        .where(and(eq(priorities.organisationId, org), eq(priorities.isActive, true)))
-        .orderBy(asc(priorities.rank)),
-    () =>
-      hasPermission(viewer.permissions, 'members.view')
-        ? executor
-            .select({ id: users.id, name: users.displayName, email: users.email })
-            .from(organisationMemberships)
-            .innerJoin(users, eq(users.id, organisationMemberships.userId))
-            .where(eq(organisationMemberships.organisationId, org))
-            .orderBy(asc(users.displayName))
-        : Promise.resolve([]),
-    () =>
-      executor
-        .select({ id: milestones.id, name: milestones.name })
-        .from(milestones)
-        .where(eq(milestones.organisationId, org))
-        .orderBy(asc(milestones.name)),
-    () =>
-      executor
-        .select({ id: cycles.id, name: cycles.name })
-        .from(cycles)
-        .where(eq(cycles.organisationId, org))
-        .orderBy(asc(cycles.startsOn)),
-    () =>
-      executor
-        .select({ key: projects.key })
-        .from(projects)
-        .where(eq(projects.organisationId, org))
-        .orderBy(asc(projects.key)),
-    () =>
-      executor
-        .select({ name: labels.name })
-        .from(labels)
-        .where(eq(labels.organisationId, org))
-        .orderBy(asc(labels.name)),
+  ] = await Promise.all([
+    executor
+      .select({ key: projectStatuses.key, name: projectStatuses.name })
+      .from(projectStatuses)
+      .where(eq(projectStatuses.organisationId, org))
+      .orderBy(asc(projectStatuses.sortOrder)),
+    executor
+      .select({ key: ticketTypes.key, name: ticketTypes.name })
+      .from(ticketTypes)
+      .where(and(eq(ticketTypes.organisationId, org), eq(ticketTypes.isActive, true)))
+      .orderBy(asc(ticketTypes.sortOrder)),
+    executor
+      .select({ key: priorities.key, name: priorities.name })
+      .from(priorities)
+      .where(and(eq(priorities.organisationId, org), eq(priorities.isActive, true)))
+      .orderBy(asc(priorities.rank)),
+    hasPermission(viewer.permissions, 'members.view')
+      ? executor
+          .select({ id: users.id, name: users.displayName, email: users.email })
+          .from(organisationMemberships)
+          .innerJoin(users, eq(users.id, organisationMemberships.userId))
+          .where(eq(organisationMemberships.organisationId, org))
+          .orderBy(asc(users.displayName))
+      : Promise.resolve([]),
+    executor
+      .select({ id: milestones.id, name: milestones.name })
+      .from(milestones)
+      .where(eq(milestones.organisationId, org))
+      .orderBy(asc(milestones.name)),
+    executor
+      .select({ id: cycles.id, name: cycles.name })
+      .from(cycles)
+      .where(eq(cycles.organisationId, org))
+      .orderBy(asc(cycles.startsOn)),
+    executor
+      .select({ key: projects.key })
+      .from(projects)
+      .where(eq(projects.organisationId, org))
+      .orderBy(asc(projects.key)),
+    executor
+      .select({ name: labels.name })
+      .from(labels)
+      .where(eq(labels.organisationId, org))
+      .orderBy(asc(labels.name)),
   ]);
   return {
     statuses: distinct(statusRows),

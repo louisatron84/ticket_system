@@ -26,7 +26,7 @@ import {
 import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { recordAudit } from '../audit';
-import { orgAccess, refuseTokens } from '../auth/guards';
+import { orgAccess } from '../auth/guards';
 import { AppError } from '../errors';
 import { loadTicketSummaries } from '../tickets/read';
 import { archivedProjectError, archivedTicketError, invalid } from '../tickets/service';
@@ -263,7 +263,7 @@ export function registerPlanningRoutes(app: FastifyInstance, deps: { db: Db }): 
 
   app.post(
     '/api/v1/orgs/:orgId/tickets/:ticketKey/rank',
-    { preHandler: [refuseTokens, orgAccess(db, 'tickets.edit')] },
+    { preHandler: orgAccess(db, 'tickets.edit') },
     async (request): Promise<{ key: string; rank: string }> => {
       const ticketKey = ticketKeyParam(request);
       const body = parseBody(rankTicketBodySchema, request.body);

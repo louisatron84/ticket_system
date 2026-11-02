@@ -23,7 +23,6 @@ import type {
   TicketSummary,
   TransitionRule,
 } from '@forge/shared';
-import { transitionRuleSentence } from '@forge/shared';
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { watchersOf } from '../notifications/service';
@@ -78,7 +77,6 @@ const columns = {
   estimateMinutes: tickets.estimateMinutes,
   estimatePoints: tickets.estimatePoints,
   estimation: projects.estimation,
-  blockersStopCompletion: projects.blockersStopCompletion,
   milestoneId: milestones.id,
   milestoneName: milestones.name,
   milestoneClosedAt: milestones.closedAt,
@@ -314,42 +312,40 @@ export async function loadTicketDetail(
     criteriaItems,
     attachments,
     mentionedIn,
-  ] = await together(executor, [
-    () => labelsFor(executor, organisationId, [row.id]),
-    () => commentCountsFor(executor, organisationId, [row.id]),
-    () => progressOf(executor, [row.id]),
-    () => openBlockersOf(executor, organisationId, [row.id]),
-    () => ancestorsOf(executor, row.id),
-    () => childTreeOf(executor, row.id),
-    () => loadLinks(executor, organisationId, row.id),
-    () =>
-      executor
-        .select({
-          id: projectStatuses.id,
-          key: projectStatuses.key,
-          name: projectStatuses.name,
-          category: projectStatuses.category,
-          isCancellation: projectStatuses.isCancellation,
-          rules: statusTransitions.rules,
-        })
-        .from(statusTransitions)
-        .innerJoin(projectStatuses, eq(projectStatuses.id, statusTransitions.toStatusId))
-        .where(
-          and(
-            eq(statusTransitions.projectId, row.projectId),
-            eq(statusTransitions.fromStatusId, row.statusId),
-            eq(projectStatuses.isActive, true),
-          ),
-        )
-        .orderBy(asc(projectStatuses.sortOrder)),
-    () => loadCriteria(executor, row.id),
-    () => loadAttachments(executor, row.id),
-    () => mentionedInOf(executor, row.id),
+  ] = await Promise.all([
+    labelsFor(executor, organisationId, [row.id]),
+    commentCountsFor(executor, organisationId, [row.id]),
+    progressOf(executor, [row.id]),
+    openBlockersOf(executor, organisationId, [row.id]),
+    ancestorsOf(executor, row.id),
+    childTreeOf(executor, row.id),
+    loadLinks(executor, organisationId, row.id),
+    executor
+      .select({
+        id: projectStatuses.id,
+        key: projectStatuses.key,
+        name: projectStatuses.name,
+        category: projectStatuses.category,
+        rules: statusTransitions.rules,
+      })
+      .from(statusTransitions)
+      .innerJoin(projectStatuses, eq(projectStatuses.id, statusTransitions.toStatusId))
+      .where(
+        and(
+          eq(statusTransitions.projectId, row.projectId),
+          eq(statusTransitions.fromStatusId, row.statusId),
+          eq(projectStatuses.isActive, true),
+        ),
+      )
+      .orderBy(asc(projectStatuses.sortOrder)),
+    loadCriteria(executor, row.id),
+    loadAttachments(executor, row.id),
+    mentionedInOf(executor, row.id),
   ]);
-  const [watchers, triage, fields] = await together(executor, [
-    () => watchersOf(executor, row.id),
-    () => triageInfoOf(executor, row),
-    () => ticketFieldsOf(executor, organisationId, row),
+  const [watchers, triage, fields] = await Promise.all([
+    watchersOf(executor, row.id),
+    triageInfoOf(executor, row),
+    ticketFieldsOf(executor, organisationId, row),
   ]);
   const references = await referencesOf(executor, organisationId, row, criteriaItems);
   const done = criteriaItems.filter((item) => item.done).length;
@@ -397,7 +393,6 @@ export async function loadTicketDetail(
       ...status,
       category: status.category as StatusCategory,
       rules: status.rules as TransitionRule[],
-      refusal: moveRefusal(row, { ...status, isCancellation }, blockers.get(row.id) ?? []),
     })),
     ancestors,
     children,

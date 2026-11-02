@@ -713,7 +713,7 @@ export function suggestQuery(
     );
   };
 
-  let items: QuerySuggestion[];
+  let items: QuerySuggestion[] = [];
   switch (key) {
     case 'project':
       items = options(unique(context.projects));

@@ -18,12 +18,8 @@ export function timelineRange(
     ...timeline.milestones.map((milestone) => milestone.targetDate),
   ].filter((date): date is string => date !== null);
   const sorted = [...dates].sort();
-  // Every day in range is walked, so a date far off (entered before dates were limited) must not
-  // stretch it: two years back and five ahead is as far as it goes.
-  const earliest = addDays(today, -730);
-  const latest = addDays(today, 1826);
-  let from = sorted[0]! < earliest ? earliest : sorted[0]!;
-  let to = sorted.at(-1)! > latest ? latest : sorted.at(-1)!;
+  let from = sorted[0]!;
+  let to = sorted.at(-1)!;
   if (zoom === 'weeks') {
     from = addDays(from, -(((new Date(`${from}T00:00:00Z`).getUTCDay() + 6) % 7) + 7));
     to = addDays(to, 14);

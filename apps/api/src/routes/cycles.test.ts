@@ -149,27 +149,6 @@ describe('planning cycles', () => {
     expect(renamed.cycles[0]!.name).toBe('Go live');
   });
 
-  it('runs a cycle for at most a year, made or changed', async () => {
-    const tooLong = await send('POST', url(), 'owner', {
-      startsOn: '2031-01-01',
-      endsOn: '2032-01-01',
-    });
-    expect(tooLong.statusCode).toBe(422);
-    expect(tooLong.json().error.details).toEqual([
-      { path: 'endsOn', message: 'A cycle can run for at most 365 days.' },
-    ]);
-    const ancient = await send('POST', url(), 'owner', {
-      startsOn: '0001-01-01',
-      endsOn: '9999-12-31',
-    });
-    expect(ancient.statusCode).toBe(422);
-    const result = await create({ name: 'Year', startsOn: '2031-01-01', endsOn: '2031-12-31' });
-    const id = byName(result, 'Year').id;
-    expect((await send('PATCH', url(`/${id}`), 'owner', { endsOn: '2032-06-01' })).statusCode).toBe(
-      422,
-    );
-  });
-
   it('starts one cycle at a time, recording what was planned', async () => {
     await create();
     const [first, second] = (await create()).cycles as [Cycle, Cycle];

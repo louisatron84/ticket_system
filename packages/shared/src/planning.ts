@@ -166,8 +166,6 @@ export const createCycleBodySchema = z
     (body) => !body.startsOn || !body.endsOn || body.endsOn > body.startsOn,
     'A cycle must end after it starts.',
   );
-/** The longest a cycle may run, in days. Its burndown has one row per day. */
-export const MAX_CYCLE_DAYS = 365;
 export type CreateCycleBody = z.infer<typeof createCycleBodySchema>;
 
 export const updateCycleBodySchema = z
