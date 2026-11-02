@@ -204,8 +204,9 @@ describe('ticket links', () => {
     expect(await linksOf('WEB-2')).toEqual([]);
   });
 
-  it('keeps a link whose ticket is in an archived project', async () => {
-    const detail = await linkOk('WEB-1', 'blocks', 'API-4');
+  it('removes a link to a ticket in an archived project, but not from that ticket', async () => {
+    // A blocker archived with its project would otherwise block for good.
+    const detail = await linkOk('API-4', 'blocks', 'WEB-1');
     const archived = await ctx.app.inject({
       method: 'PATCH',
       url: `/api/v1/orgs/${f.acmeId}/projects/API`,
@@ -213,12 +214,15 @@ describe('ticket links', () => {
       headers: { cookie: await ctx.cookieFor('owner') },
     });
     expect(archived.statusCode, archived.body).toBe(200);
-    const response = await removeLink('WEB-1', detail.links[0]!.id);
-    expect(response.statusCode).toBe(409);
-    expect(apiErrorSchema.parse(response.json()).error.message).toBe(
+    const linkId = detail.links[0]!.id;
+    const fromArchived = await removeLink('API-4', linkId);
+    expect(fromArchived.statusCode).toBe(409);
+    expect(apiErrorSchema.parse(fromArchived.json()).error.message).toBe(
       'API-4 is in an archived project.',
     );
-    expect(await linksOf('WEB-1')).toEqual(['Blocks API-4']);
+    const response = await removeLink('WEB-1', linkId);
+    expect(response.statusCode, response.body).toBe(204);
+    expect(await linksOf('WEB-1')).toEqual([]);
   });
 
   it('answers 404 for a link that does not touch the ticket in the address', async () => {

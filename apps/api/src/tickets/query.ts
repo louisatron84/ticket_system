@@ -18,6 +18,7 @@ import {
 import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { loadTicketSummaries } from './read';
+import { together } from '../together';
 
 // Nothing here puts request text into SQL. Text is only ever bound as a parameter, and the one
 // thing chosen by name (the sort) is looked up in a fixed list.
@@ -313,26 +314,28 @@ export async function searchTicketIds(
   input: { where: SQL[]; order: SQL[]; limit: number; offset: number },
 ): Promise<{ ids: string[]; total: number }> {
   const condition = and(...input.where);
-  const [rows, counted] = await Promise.all([
-    executor
-      .select({ id: tickets.id })
-      .from(tickets)
-      .innerJoin(projects, eq(projects.id, tickets.projectId))
-      .innerJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
-      .innerJoin(ticketTypes, eq(ticketTypes.id, tickets.typeId))
-      .innerJoin(priorities, eq(priorities.id, tickets.priorityId))
-      .where(condition)
-      .orderBy(...input.order)
-      .limit(input.limit)
-      .offset(input.offset),
-    executor
-      .select({ total: sql<number>`count(*)::int` })
-      .from(tickets)
-      .innerJoin(projects, eq(projects.id, tickets.projectId))
-      .innerJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
-      .innerJoin(ticketTypes, eq(ticketTypes.id, tickets.typeId))
-      .innerJoin(priorities, eq(priorities.id, tickets.priorityId))
-      .where(condition),
+  const [rows, counted] = await together(executor, [
+    () =>
+      executor
+        .select({ id: tickets.id })
+        .from(tickets)
+        .innerJoin(projects, eq(projects.id, tickets.projectId))
+        .innerJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
+        .innerJoin(ticketTypes, eq(ticketTypes.id, tickets.typeId))
+        .innerJoin(priorities, eq(priorities.id, tickets.priorityId))
+        .where(condition)
+        .orderBy(...input.order)
+        .limit(input.limit)
+        .offset(input.offset),
+    () =>
+      executor
+        .select({ total: sql<number>`count(*)::int` })
+        .from(tickets)
+        .innerJoin(projects, eq(projects.id, tickets.projectId))
+        .innerJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
+        .innerJoin(ticketTypes, eq(ticketTypes.id, tickets.typeId))
+        .innerJoin(priorities, eq(priorities.id, tickets.priorityId))
+        .where(condition),
   ]);
   return { ids: rows.map((row) => row.id), total: counted[0]?.total ?? 0 };
 }

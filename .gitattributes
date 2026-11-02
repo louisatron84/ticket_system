@@ -1,0 +1,2 @@
+# Text files are LF everywhere, as Prettier expects, whatever core.autocrlf says.
+* text=auto eol=lf

@@ -10,6 +10,7 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import { COLUMN_LIMIT } from './board';
 import { conditionsFor, orderFor, searchTicketIds, type QueryActor } from './query';
 import { loadTicketSummaries } from './read';
+import { together } from '../together';
 
 type StatusRow = typeof projectStatuses.$inferSelect;
 
@@ -34,23 +35,25 @@ async function readWorkflows(executor: Executor, actor: QueryActor, projectKeys:
   }
 
   const projectIds = projectRows.map((project) => project.id);
-  const [statusRows, transitionRows] = await Promise.all([
-    executor
-      .select()
-      .from(projectStatuses)
-      .where(
-        and(inArray(projectStatuses.projectId, projectIds), eq(projectStatuses.isActive, true)),
-      )
-      .orderBy(asc(projectStatuses.sortOrder)),
-    executor
-      .select({
-        projectId: statusTransitions.projectId,
-        fromStatusId: statusTransitions.fromStatusId,
-        toStatusId: statusTransitions.toStatusId,
-        rules: statusTransitions.rules,
-      })
-      .from(statusTransitions)
-      .where(inArray(statusTransitions.projectId, projectIds)),
+  const [statusRows, transitionRows] = await together(executor, [
+    () =>
+      executor
+        .select()
+        .from(projectStatuses)
+        .where(
+          and(inArray(projectStatuses.projectId, projectIds), eq(projectStatuses.isActive, true)),
+        )
+        .orderBy(asc(projectStatuses.sortOrder)),
+    () =>
+      executor
+        .select({
+          projectId: statusTransitions.projectId,
+          fromStatusId: statusTransitions.fromStatusId,
+          toStatusId: statusTransitions.toStatusId,
+          rules: statusTransitions.rules,
+        })
+        .from(statusTransitions)
+        .where(inArray(statusTransitions.projectId, projectIds)),
   ]);
   // Moves touching an inactive status are kept for when it comes back, but never offered.
   const activeIds = new Set(statusRows.map((status) => status.id));
@@ -132,8 +135,9 @@ export async function loadWorkspaceBoard(
 
   const shared = conditionsFor({ ...filters, triage: false }, actor, { ignoreStatus: true });
   const order = orderFor(filters.sort, filters.dir, filters.sortField);
-  const columns = await Promise.all(
-    groups.map(async ([key, group]) => {
+  const columns = await together(
+    executor,
+    groups.map(([key, group]) => async () => {
       const { ids, total } = await searchTicketIds(executor, {
         where: [...shared, inArray(tickets.statusId, group.ids)],
         order,

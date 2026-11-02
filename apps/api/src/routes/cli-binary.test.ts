@@ -93,7 +93,10 @@ describe('the forge command', () => {
     expect(moved.out).toBe('WEB-2 moved from Warming to In the Forge.\n');
     expect(await statusOf('WEB-2')).toBe('In the Forge');
 
-    expect((await forge(['hammer', 'WEB-2'])).out).toBe('WEB-2 is already in In the Forge.\n');
+    // A move that changes nothing is not a success.
+    const again = await forge(['hammer', 'WEB-2']);
+    expect(again.code).toBe(1);
+    expect(again.err).toBe('WEB-2 is already in In the Forge. Nothing changed.\n');
 
     const out = await forge(['logout']);
     expect(out.out).toBe('Signed out.\n');

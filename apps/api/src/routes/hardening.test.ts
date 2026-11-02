@@ -151,6 +151,26 @@ describe('command-line tokens', () => {
     expect(message(response)).toBe('Command-line tokens cannot do that. Use the web app.');
   });
 
+  it('cannot plan: no cycles, milestones, workspace labels or ranking', async () => {
+    const { token } = await makeToken('owner', 'write');
+    const attempts: [string, string, object][] = [
+      ['POST', `${org()}/projects/WEB/cycles`, {}],
+      ['POST', `${org()}/projects/WEB/milestones`, { name: 'M1' }],
+      ['POST', `${org()}/labels`, { name: 'from-cli', color: 'red' }],
+      ['POST', `${org()}/tickets/WEB-1/rank`, { before: 'WEB-2' }],
+    ];
+    for (const [method, url, payload] of attempts) {
+      const response = await ctx.app.inject({
+        method: method as 'POST',
+        url,
+        headers: { authorization: `Bearer ${token}` },
+        payload,
+      });
+      expect(response.statusCode, url).toBe(403);
+      expect(message(response)).toBe('Command-line tokens cannot do that. Use the web app.');
+    }
+  });
+
   it('can only read when its owner can only read, whatever was asked for', async () => {
     const { token } = await makeToken('readonly', 'write');
     const me = await ctx.app.inject({
@@ -200,6 +220,20 @@ describe('approving a command-line sign-in', () => {
     expect(plain.statusCode).toBe(409);
     expect(message(plain)).toMatch(/started from another address/);
     expect((await decide(userCode, { differentAddressConfirmed: true })).statusCode).toBe(204);
+  });
+
+  it('ignores an address the caller claims in X-Forwarded-For', async () => {
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/cli/login',
+      payload: { machine: 'laptop' },
+      remoteAddress: '127.0.0.1',
+      headers: { 'x-forwarded-for': '203.0.113.77' },
+    });
+    expect(response.statusCode).toBe(201);
+    const { userCode } = response.json() as { userCode: string };
+    const lookup = await as('developer', 'POST', '/api/v1/cli/login/lookup', { userCode });
+    expect((lookup.json() as { requestIp: string }).requestIp).toBe('127.0.0.1');
   });
 
   it('needs no second yes from this same machine', async () => {

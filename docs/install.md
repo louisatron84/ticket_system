@@ -104,7 +104,22 @@ On macOS and Linux run `npx playwright install chromium` once before the browser
 - **"Port 54329 is already in use"**: if it is this folder's database, use it as it is. Otherwise
   another copy of Forge or Docker Compose holds the port. `npm run db:stop` stops only the database
   in this folder's `.data` directory.
-- **Port 3000 or 4000 in use**: stop whatever uses it, then `npm run dev` again.
+- **Port 3000 or 4000 in use**: stop whatever uses it, or move Forge (below).
+
+## Changing the ports
+
+Each port is set in one place, and whatever points at it must follow:
+
+| What         | Default | Set it with                                               | Then also change                               |
+| ------------ | ------- | --------------------------------------------------------- | ---------------------------------------------- |
+| Web app      | 3000    | `PORT` in the shell that runs `npm run dev`               | `WEB_ORIGIN` in `.env`; `forge login --server` |
+| API          | 4000    | `API_PORT` in `.env`                                      | `API_INTERNAL_URL` in `.env`                   |
+| Dev database | 54329   | `FORGE_DB_PORT` in the shell that runs `npm run db:start` | the port in every `*_DATABASE_URL` in `.env`   |
+
+For example, in PowerShell: `$env:PORT = 3001; npm run dev`, with
+`WEB_ORIGIN=http://localhost:3001,http://127.0.0.1:3001` in `.env`. The browser tests always use
+3100 and 4100.
+
 - **`db:migrate` says the database is not UTF-8**: only an old local database; see
   [setup](setup.md#the-database-must-be-utf-8).
 - **Start the demo data again**: `npm run db:reseed` (wipes every table). The "Reset demo data"

@@ -25,8 +25,10 @@ const listIdentities = (headers: Headers = {}) =>
   ctx.app.inject({ method: 'GET', url: '/api/dev/identities', headers });
 const signInAs = (payload: unknown, headers: Headers = {}) =>
   ctx.app.inject({ method: 'POST', url: '/api/dev/session', payload: payload as object, headers });
-const reset = (headers: Headers = {}) =>
-  ctx.app.inject({ method: 'POST', url: '/api/dev/reset', headers });
+/** The database these tests run on, which a reset must name. */
+const testDatabase = () => new URL(process.env.TEST_DATABASE_URL!).pathname.slice(1);
+const reset = (headers: Headers = {}, payload: object = { database: testDatabase() }) =>
+  ctx.app.inject({ method: 'POST', url: '/api/dev/reset', headers, payload });
 const me = (cookie: string) =>
   ctx.app.inject({ method: 'GET', url: '/api/v1/me', headers: { cookie } });
 
@@ -198,7 +200,31 @@ describe('POST /api/dev/reset', () => {
       200,
     );
     await noReset.close();
-    expect((await ctx.app.inject({ method: 'GET', url: '/api/dev/reset' })).statusCode).toBe(204);
+    const available = await ctx.app.inject({ method: 'GET', url: '/api/dev/reset' });
+    expect(available.statusCode).toBe(200);
+    expect(available.json()).toEqual({ database: testDatabase() });
+  });
+
+  it('needs someone signed in, and wipes nothing without', async () => {
+    await ctx.db.insert(users).values({ email: 'stray@example.test', displayName: 'Stray' });
+    const response = await reset();
+    expect(response.statusCode).toBe(401);
+    expect(
+      await ctx.db.select().from(users).where(eq(users.email, 'stray@example.test')),
+    ).toHaveLength(1);
+  });
+
+  it('refuses when the database named is not the one this server uses', async () => {
+    const cookie = await ctx.cookieFor('owner');
+    await ctx.db.insert(users).values({ email: 'stray@example.test', displayName: 'Stray' });
+    const wrong = await reset({ cookie }, { database: 'forge_e2e' });
+    expect(wrong.statusCode).toBe(409);
+    expect(wrong.json().error.message).toContain(testDatabase());
+    expect((await reset({ cookie }, {})).statusCode).toBe(422);
+    expect(
+      await ctx.db.select().from(users).where(eq(users.email, 'stray@example.test')),
+    ).toHaveLength(1);
+    expect((await me(cookie)).statusCode).toBe(200);
   });
 
   it('wipes everything, reseeds, and ends the current session', async () => {

@@ -9,6 +9,7 @@ import {
   type Executor,
 } from '@forge/db';
 import {
+  MAX_CYCLE_DAYS,
   MAX_PLANNED_CYCLES,
   addDays,
   completeCycleBodySchema,
@@ -25,7 +26,7 @@ import { and, asc, eq, inArray, isNull, max, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { recordAudit } from '../audit';
-import { orgAccess } from '../auth/guards';
+import { orgAccess, refuseTokens } from '../auth/guards';
 import { AppError } from '../errors';
 import { recordCycleMove } from '../tickets/cycle-scope';
 import { parseBody } from '../validation';
@@ -77,6 +78,19 @@ function refuseUnlessPlannable(project: CycleProjectRow) {
   if (project.archivedAt) throw archivedError();
   if (!project.cyclesEnabled) {
     throw conflict(`Cycles are off for ${project.key}. Switch them on in the project's settings.`);
+  }
+}
+
+/** A cycle ends after it starts and runs at most a year: its burndown has a row per day. */
+function checkCycleDates(startsOn: string, endsOn: string) {
+  const problem =
+    endsOn <= startsOn
+      ? 'A cycle must end after it starts.'
+      : endsOn > addDays(startsOn, MAX_CYCLE_DAYS - 1)
+        ? `A cycle can run for at most ${MAX_CYCLE_DAYS} days.`
+        : null;
+  if (problem) {
+    throw new AppError('validation_failed', problem, 422, [{ path: 'endsOn', message: problem }]);
   }
 }
 
@@ -207,11 +221,7 @@ async function insertCycle(
   const number = (last?.number ?? 0) + 1;
   const startsOn = input.startsOn ?? (last?.endsOn ? addDays(last.endsOn, 1) : today());
   const endsOn = input.endsOn ?? addDays(startsOn, project.cycleLengthDays - 1);
-  if (endsOn <= startsOn) {
-    throw new AppError('validation_failed', 'A cycle must end after it starts.', 422, [
-      { path: 'endsOn', message: 'A cycle must end after it starts.' },
-    ]);
-  }
+  checkCycleDates(startsOn, endsOn);
   const [row] = await tx
     .insert(cycles)
     .values({
@@ -270,7 +280,10 @@ export async function burndownOf(executor: Executor, project: CycleProjectRow, c
           .where(inArray(tickets.id, ids));
   const byId = new Map(info.map((row) => [row.id, row] as const));
 
-  const last = cycle.state === 'active' && today() < cycle.endsOn ? today() : cycle.endsOn;
+  const end = cycle.state === 'active' && today() < cycle.endsOn ? today() : cycle.endsOn;
+  // Cycles made before dates were limited could span centuries: never walk more than a year.
+  const longest = addDays(cycle.startsOn, MAX_CYCLE_DAYS - 1);
+  const last = end < longest ? end : longest;
   const days: Burndown['days'] = [];
   const inScope = new Set<string>();
   let next = 0;
@@ -335,89 +348,99 @@ export function registerCycleRoutes(app: FastifyInstance, deps: { db: Db }): voi
     listOf(db, await projectOf(db, request.org!.organisationId, request)),
   );
 
-  app.post(base, { preHandler: orgAccess(db, 'tickets.edit') }, async (request, reply) => {
-    const body = parseBody(createCycleBodySchema, request.body);
-    const org = request.org!;
-    const list = await db.transaction(async (tx) => {
-      const project = await projectOf(tx, org.organisationId, request, true);
-      refuseUnlessPlannable(project);
-      const [planned] = await tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(cycles)
-        .where(and(eq(cycles.projectId, project.id), eq(cycles.state, 'planned')));
-      if ((planned?.count ?? 0) >= MAX_PLANNED_CYCLES) {
-        throw conflict(`At most ${MAX_PLANNED_CYCLES} cycles can be planned ahead.`);
-      }
-      const row = await insertCycle(tx, project, {
-        organisationId: org.organisationId,
-        actorUserId: org.actorUserId,
-        ...body,
+  app.post(
+    base,
+    { preHandler: [refuseTokens, orgAccess(db, 'tickets.edit')] },
+    async (request, reply) => {
+      const body = parseBody(createCycleBodySchema, request.body);
+      const org = request.org!;
+      const list = await db.transaction(async (tx) => {
+        const project = await projectOf(tx, org.organisationId, request, true);
+        refuseUnlessPlannable(project);
+        const [planned] = await tx
+          .select({ count: sql<number>`count(*)::int` })
+          .from(cycles)
+          .where(and(eq(cycles.projectId, project.id), eq(cycles.state, 'planned')));
+        if ((planned?.count ?? 0) >= MAX_PLANNED_CYCLES) {
+          throw conflict(`At most ${MAX_PLANNED_CYCLES} cycles can be planned ahead.`);
+        }
+        const row = await insertCycle(tx, project, {
+          organisationId: org.organisationId,
+          actorUserId: org.actorUserId,
+          ...body,
+        });
+        await audit(tx, request, 'cycle.created', row.id, undefined, {
+          project: project.key,
+          ...auditOf(row),
+        });
+        return listOf(tx, project);
       });
-      await audit(tx, request, 'cycle.created', row.id, undefined, {
-        project: project.key,
-        ...auditOf(row),
+      reply.status(201);
+      return list;
+    },
+  );
+
+  app.patch(
+    `${base}/:cycleId`,
+    { preHandler: [refuseTokens, orgAccess(db, 'tickets.edit')] },
+    async (request) => {
+      const body = parseBody(updateCycleBodySchema, request.body);
+      const cycleId = cycleIdParam(request);
+      return db.transaction(async (tx) => {
+        const project = await projectOf(tx, request.org!.organisationId, request, true);
+        refuseUnlessPlannable(project);
+        const before = await cycleOf(tx, project, cycleId);
+        if (before.state === 'completed') throw conflict(`${before.name} is completed.`);
+        const startsOn = body.startsOn ?? before.startsOn;
+        const endsOn = body.endsOn ?? before.endsOn;
+        checkCycleDates(startsOn, endsOn);
+        const [after] = await tx
+          .update(cycles)
+          .set({
+            ...(body.name !== undefined ? { name: body.name } : {}),
+            ...(body.capacity !== undefined ? { capacity: body.capacity } : {}),
+            startsOn,
+            endsOn,
+          })
+          .where(eq(cycles.id, before.id))
+          .returning();
+        await audit(tx, request, 'cycle.updated', before.id, auditOf(before), auditOf(after!));
+        return listOf(tx, project);
       });
-      return listOf(tx, project);
-    });
-    reply.status(201);
-    return list;
-  });
+    },
+  );
 
-  app.patch(`${base}/:cycleId`, { preHandler: orgAccess(db, 'tickets.edit') }, async (request) => {
-    const body = parseBody(updateCycleBodySchema, request.body);
-    const cycleId = cycleIdParam(request);
-    return db.transaction(async (tx) => {
-      const project = await projectOf(tx, request.org!.organisationId, request, true);
-      refuseUnlessPlannable(project);
-      const before = await cycleOf(tx, project, cycleId);
-      if (before.state === 'completed') throw conflict(`${before.name} is completed.`);
-      const startsOn = body.startsOn ?? before.startsOn;
-      const endsOn = body.endsOn ?? before.endsOn;
-      if (endsOn <= startsOn) {
-        throw new AppError('validation_failed', 'A cycle must end after it starts.', 422, [
-          { path: 'endsOn', message: 'A cycle must end after it starts.' },
-        ]);
-      }
-      const [after] = await tx
-        .update(cycles)
-        .set({
-          ...(body.name !== undefined ? { name: body.name } : {}),
-          ...(body.capacity !== undefined ? { capacity: body.capacity } : {}),
-          startsOn,
-          endsOn,
-        })
-        .where(eq(cycles.id, before.id))
-        .returning();
-      await audit(tx, request, 'cycle.updated', before.id, auditOf(before), auditOf(after!));
-      return listOf(tx, project);
-    });
-  });
-
-  app.delete(`${base}/:cycleId`, { preHandler: orgAccess(db, 'tickets.edit') }, async (request) => {
-    const cycleId = cycleIdParam(request);
-    return db.transaction(async (tx) => {
-      const project = await projectOf(tx, request.org!.organisationId, request, true);
-      if (project.archivedAt) throw archivedError();
-      const row = await cycleOf(tx, project, cycleId);
-      if (row.state !== 'planned') {
-        throw conflict(`${row.name} has started, so it stays in the record. Complete it instead.`);
-      }
-      const [used] = await tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(tickets)
-        .where(eq(tickets.cycleId, row.id));
-      if ((used?.count ?? 0) > 0) {
-        throw conflict(`${row.name} has tickets. Move them out before deleting it.`);
-      }
-      await tx.delete(cycles).where(eq(cycles.id, row.id));
-      await audit(tx, request, 'cycle.deleted', row.id, auditOf(row));
-      return listOf(tx, project);
-    });
-  });
+  app.delete(
+    `${base}/:cycleId`,
+    { preHandler: [refuseTokens, orgAccess(db, 'tickets.edit')] },
+    async (request) => {
+      const cycleId = cycleIdParam(request);
+      return db.transaction(async (tx) => {
+        const project = await projectOf(tx, request.org!.organisationId, request, true);
+        if (project.archivedAt) throw archivedError();
+        const row = await cycleOf(tx, project, cycleId);
+        if (row.state !== 'planned') {
+          throw conflict(
+            `${row.name} has started, so it stays in the record. Complete it instead.`,
+          );
+        }
+        const [used] = await tx
+          .select({ count: sql<number>`count(*)::int` })
+          .from(tickets)
+          .where(eq(tickets.cycleId, row.id));
+        if ((used?.count ?? 0) > 0) {
+          throw conflict(`${row.name} has tickets. Move them out before deleting it.`);
+        }
+        await tx.delete(cycles).where(eq(cycles.id, row.id));
+        await audit(tx, request, 'cycle.deleted', row.id, auditOf(row));
+        return listOf(tx, project);
+      });
+    },
+  );
 
   app.post(
     `${base}/:cycleId/start`,
-    { preHandler: orgAccess(db, 'tickets.edit') },
+    { preHandler: [refuseTokens, orgAccess(db, 'tickets.edit')] },
     async (request) => {
       const cycleId = cycleIdParam(request);
       return db.transaction(async (tx) => {
@@ -449,7 +472,7 @@ export function registerCycleRoutes(app: FastifyInstance, deps: { db: Db }): voi
 
   app.post(
     `${base}/:cycleId/complete`,
-    { preHandler: orgAccess(db, 'tickets.edit') },
+    { preHandler: [refuseTokens, orgAccess(db, 'tickets.edit')] },
     async (request) => {
       const body = parseBody(completeCycleBodySchema, request.body);
       const cycleId = cycleIdParam(request);

@@ -27,6 +27,7 @@ import { z } from 'zod';
 import { recordAudit } from '../audit';
 import { AppError } from '../errors';
 import { invalid } from '../tickets/service';
+import { together } from '../together';
 
 // Workflow editing: a project's statuses and the moves between them. Every change runs under a
 // lock on the project row, so two editors take turns; every change is checked against the rules
@@ -95,14 +96,15 @@ export async function readWorkflowConfig(
   executor: Executor,
   project: Pick<ProjectRow, 'id' | 'key' | 'archivedAt' | 'workflowVersion'>,
 ): Promise<WorkflowConfig> {
-  const [statuses, transitions, counts] = await Promise.all([
-    statusesOf(executor, project.id),
-    executor
-      .select()
-      .from(statusTransitions)
-      .where(eq(statusTransitions.projectId, project.id))
-      .orderBy(asc(statusTransitions.id)),
-    ticketCounts(executor, project.id),
+  const [statuses, transitions, counts] = await together(executor, [
+    () => statusesOf(executor, project.id),
+    () =>
+      executor
+        .select()
+        .from(statusTransitions)
+        .where(eq(statusTransitions.projectId, project.id))
+        .orderBy(asc(statusTransitions.id)),
+    () => ticketCounts(executor, project.id),
   ]);
   return {
     projectId: project.id,
@@ -615,11 +617,11 @@ export async function copyWorkflow(
       ]);
     }
 
-    const [sourceStatuses, sourceTransitions, targetStatuses, counts] = await Promise.all([
-      statusesOf(tx, source.id),
-      tx.select().from(statusTransitions).where(eq(statusTransitions.projectId, source.id)),
-      statusesOf(tx, project.id),
-      ticketCounts(tx, project.id),
+    const [sourceStatuses, sourceTransitions, targetStatuses, counts] = await together(tx, [
+      () => statusesOf(tx, source.id),
+      () => tx.select().from(statusTransitions).where(eq(statusTransitions.projectId, source.id)),
+      () => statusesOf(tx, project.id),
+      () => ticketCounts(tx, project.id),
     ]);
     const sourceByKey = new Map(sourceStatuses.map((s) => [s.key, s]));
 

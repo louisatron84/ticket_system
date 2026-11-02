@@ -23,11 +23,12 @@ import type {
   TicketSummary,
   TransitionRule,
 } from '@forge/shared';
+import { transitionRuleSentence } from '@forge/shared';
 import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { watchersOf } from '../notifications/service';
 import { triageInfoOf } from '../triage/read';
-import { openBlockersOf } from './blockers';
+import { completionRefusalText, openBlockersOf } from './blockers';
 import {
   criteriaCountsFor,
   loadAttachments,
@@ -37,6 +38,7 @@ import {
 } from './content';
 import { fieldTextsFor, textsOf, ticketFieldsOf } from './field-read';
 import { ancestorsOf, childTreeOf, loadLinks, progressOf } from './structure-read';
+import { together } from '../together';
 
 const assigneeUser = alias(users, 'assignee_user');
 const reporterUser = alias(users, 'reporter_user');
@@ -76,6 +78,7 @@ const columns = {
   estimateMinutes: tickets.estimateMinutes,
   estimatePoints: tickets.estimatePoints,
   estimation: projects.estimation,
+  blockersStopCompletion: projects.blockersStopCompletion,
   milestoneId: milestones.id,
   milestoneName: milestones.name,
   milestoneClosedAt: milestones.closedAt,
@@ -112,6 +115,37 @@ function selectRows(executor: Executor, where: SQL | undefined) {
     .where(where);
 }
 type Row = Awaited<ReturnType<typeof selectRows>>[number];
+
+/**
+ * Why a move the workflow allows would be refused right now, or null. The same checks and words
+ * as the move itself, except a needed comment, which comes with the move.
+ */
+function moveRefusal(
+  row: Row,
+  target: { name: string; category: string; isCancellation: boolean; rules: unknown },
+  blockers: string[],
+): string | null {
+  if (
+    target.category === 'completed' &&
+    !target.isCancellation &&
+    row.blockersStopCompletion &&
+    blockers.length > 0
+  ) {
+    return completionRefusalText(row.key, target.name, blockers);
+  }
+  const hasEstimate =
+    (row.estimation === 'points' ? row.estimatePoints : row.estimateMinutes) !== null;
+  for (const rule of target.rules as TransitionRule[]) {
+    if (
+      (rule === 'needs_assignee' && row.assigneeId === null) ||
+      (rule === 'needs_estimate' && !hasEstimate) ||
+      (rule === 'no_open_blockers' && blockers.length > 0)
+    ) {
+      return transitionRuleSentence(rule, target.name, blockers);
+    }
+  }
+  return null;
+}
 
 async function labelsFor(
   executor: Executor,
@@ -222,13 +256,17 @@ export async function loadTicketSummaries(
   ids: string[],
 ): Promise<TicketSummary[]> {
   if (ids.length === 0) return [];
-  const [rows, labelMap, commentCounts, progress, blockers, criteria] = await Promise.all([
-    selectRows(executor, and(eq(tickets.organisationId, organisationId), inArray(tickets.id, ids))),
-    labelsFor(executor, organisationId, ids),
-    commentCountsFor(executor, organisationId, ids),
-    progressOf(executor, ids),
-    openBlockersOf(executor, organisationId, ids),
-    criteriaCountsFor(executor, organisationId, ids),
+  const [rows, labelMap, commentCounts, progress, blockers, criteria] = await together(executor, [
+    () =>
+      selectRows(
+        executor,
+        and(eq(tickets.organisationId, organisationId), inArray(tickets.id, ids)),
+      ),
+    () => labelsFor(executor, organisationId, ids),
+    () => commentCountsFor(executor, organisationId, ids),
+    () => progressOf(executor, ids),
+    () => openBlockersOf(executor, organisationId, ids),
+    () => criteriaCountsFor(executor, organisationId, ids),
   ]);
   const byId = new Map(rows.map((row) => [row.id, row] as const));
   const fieldTexts = await fieldTextsFor(executor, organisationId, rows);
@@ -276,40 +314,42 @@ export async function loadTicketDetail(
     criteriaItems,
     attachments,
     mentionedIn,
-  ] = await Promise.all([
-    labelsFor(executor, organisationId, [row.id]),
-    commentCountsFor(executor, organisationId, [row.id]),
-    progressOf(executor, [row.id]),
-    openBlockersOf(executor, organisationId, [row.id]),
-    ancestorsOf(executor, row.id),
-    childTreeOf(executor, row.id),
-    loadLinks(executor, organisationId, row.id),
-    executor
-      .select({
-        id: projectStatuses.id,
-        key: projectStatuses.key,
-        name: projectStatuses.name,
-        category: projectStatuses.category,
-        rules: statusTransitions.rules,
-      })
-      .from(statusTransitions)
-      .innerJoin(projectStatuses, eq(projectStatuses.id, statusTransitions.toStatusId))
-      .where(
-        and(
-          eq(statusTransitions.projectId, row.projectId),
-          eq(statusTransitions.fromStatusId, row.statusId),
-          eq(projectStatuses.isActive, true),
-        ),
-      )
-      .orderBy(asc(projectStatuses.sortOrder)),
-    loadCriteria(executor, row.id),
-    loadAttachments(executor, row.id),
-    mentionedInOf(executor, row.id),
+  ] = await together(executor, [
+    () => labelsFor(executor, organisationId, [row.id]),
+    () => commentCountsFor(executor, organisationId, [row.id]),
+    () => progressOf(executor, [row.id]),
+    () => openBlockersOf(executor, organisationId, [row.id]),
+    () => ancestorsOf(executor, row.id),
+    () => childTreeOf(executor, row.id),
+    () => loadLinks(executor, organisationId, row.id),
+    () =>
+      executor
+        .select({
+          id: projectStatuses.id,
+          key: projectStatuses.key,
+          name: projectStatuses.name,
+          category: projectStatuses.category,
+          isCancellation: projectStatuses.isCancellation,
+          rules: statusTransitions.rules,
+        })
+        .from(statusTransitions)
+        .innerJoin(projectStatuses, eq(projectStatuses.id, statusTransitions.toStatusId))
+        .where(
+          and(
+            eq(statusTransitions.projectId, row.projectId),
+            eq(statusTransitions.fromStatusId, row.statusId),
+            eq(projectStatuses.isActive, true),
+          ),
+        )
+        .orderBy(asc(projectStatuses.sortOrder)),
+    () => loadCriteria(executor, row.id),
+    () => loadAttachments(executor, row.id),
+    () => mentionedInOf(executor, row.id),
   ]);
-  const [watchers, triage, fields] = await Promise.all([
-    watchersOf(executor, row.id),
-    triageInfoOf(executor, row),
-    ticketFieldsOf(executor, organisationId, row),
+  const [watchers, triage, fields] = await together(executor, [
+    () => watchersOf(executor, row.id),
+    () => triageInfoOf(executor, row),
+    () => ticketFieldsOf(executor, organisationId, row),
   ]);
   const references = await referencesOf(executor, organisationId, row, criteriaItems);
   const done = criteriaItems.filter((item) => item.done).length;
@@ -353,10 +393,11 @@ export async function loadTicketDetail(
     version: row.version,
     completedAt: iso(row.completedAt),
     archivedAt: iso(row.archivedAt),
-    allowedTransitions: next.map((status) => ({
+    allowedTransitions: next.map(({ isCancellation, ...status }) => ({
       ...status,
       category: status.category as StatusCategory,
       rules: status.rules as TransitionRule[],
+      refusal: moveRefusal(row, { ...status, isCancellation }, blockers.get(row.id) ?? []),
     })),
     ancestors,
     children,

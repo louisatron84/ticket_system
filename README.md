@@ -85,13 +85,15 @@ forge cold|warm|hammer|temper|jammed|quench|scrap <KEY>
 forge catalogue [--mine]    # list tickets (alias: forge cat; --json for scripts)
 forge cat --query "assignee:me is:open order:priority"   # the search box's words
 forge inspect WEB-1         # one ticket, its fields, and the moves it allows
-forge move WEB-1 QA -m "Ready for a look"   # any status by name; -m adds a comment
+forge move WEB-1 "In the Forge" -m "Picking this up"   # any status by name; -m adds a comment
 forge inbox [--all]         # your notifications; forge inbox read marks them read
 forge whoami
 forge logout                # also revokes the token on the server
 ```
 
-Moves follow the ticket's workflow and the blocker rule exactly as the board does. Tokens are
+Moves follow the ticket's workflow and the blocker rule exactly as the board does. `inspect` lists
+only the moves that would go through now and says why the others would not; a move to where the
+ticket already is exits 1 ("Nothing changed"), as does a refusal. Tokens are
 managed under the account menu, **CLI tokens**; see [security](docs/security.md#command-line-tokens).
 
 ## Repository map

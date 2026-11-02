@@ -1,9 +1,10 @@
 import { developmentFixtures, reseedDevelopmentData, users, type Db } from '@forge/db';
-import { devSessionBodySchema, type DevIdentity } from '@forge/shared';
+import { devResetBodySchema, devSessionBodySchema, type DevIdentity } from '@forge/shared';
 import { asc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance, preHandlerAsyncHookHandler } from 'fastify';
 import { recordAudit } from '../audit';
 import { sessionCookieOptions } from '../auth/cookies';
+import { requireUser } from '../auth/guards';
 import { isLoopbackAddress, isLoopbackHost } from '../auth/host';
 import { SESSION_COOKIE, createSession, revokeSession } from '../auth/sessions';
 import type { AppConfig } from '../config';
@@ -93,18 +94,34 @@ export function registerDevRoutes(app: FastifyInstance, deps: { db: Db; config: 
   // off unless FORGE_DEV_RESET is set. The command `npm run db:reseed` still works either way.
   if (!config.devReset) return;
 
-  app.get('/api/dev/reset', { preHandler: localOnly }, async (_request, reply) =>
-    reply.status(204).send(),
-  );
-
-  app.post('/api/dev/reset', { preHandler: localOnly }, async (_request, reply) => {
-    // The main development database is where people keep their own work: never from a button.
+  const databaseName = async () => {
     const { rows } = await db.execute<{ name: string }>(sql`select current_database() as name`);
-    if (rows[0]?.name === PROTECTED_DATABASE) {
+    return rows[0]!.name;
+  };
+
+  // Says which database a reset would wipe, so the caller can name it back.
+  app.get('/api/dev/reset', { preHandler: localOnly }, async (): Promise<{ database: string }> => ({
+    database: await databaseName(),
+  }));
+
+  // Only someone signed in may reset, and only by naming the database: a test run that finds some
+  // other copy of Forge on its port is refused instead of wiping that copy's data.
+  app.post('/api/dev/reset', { preHandler: [localOnly, requireUser] }, async (request, reply) => {
+    const { database } = parseBody(devResetBodySchema, request.body);
+    const name = await databaseName();
+    // The main development database is where people keep their own work: never from a button.
+    if (name === PROTECTED_DATABASE) {
       throw new AppError(
         'forbidden',
         'Reset is refused on the main "forge" database. Run npm run db:reseed if you really mean it.',
         403,
+      );
+    }
+    if (database !== name) {
+      throw new AppError(
+        'conflict',
+        `This server uses the database "${name}", not "${database}". Nothing was reset.`,
+        409,
       );
     }
     await reseedDevelopmentData(db);

@@ -272,7 +272,12 @@ function StatusList({
                 )
               }
             />
-            <span className="font-mono text-xs text-muted">{status.key}</span>
+            <span
+              className="font-mono text-xs text-muted"
+              title="The fixed key: it never changes when the name does. Queries and the API take either."
+            >
+              key {status.key}
+            </span>
             <select
               aria-label={`Category of ${status.name}`}
               className={`${inputClass()} w-36`}

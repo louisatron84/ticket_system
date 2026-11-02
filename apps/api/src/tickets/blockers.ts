@@ -40,6 +40,10 @@ export async function openBlockersOf(
 const listOf = (keys: string[]) =>
   keys.length <= 1 ? (keys[0] ?? '') : `${keys.slice(0, -1).join(', ')} and ${keys.at(-1)}`;
 
+/** The refusal of a move to a done status while blockers are open. */
+export const completionRefusalText = (ticketKey: string, targetName: string, keys: string[]) =>
+  `${ticketKey} can't be ${targetName.toLowerCase()} while ${listOf(keys)} ${keys.length === 1 ? 'is' : 'are'} open.`;
+
 /**
  * Why this ticket cannot move to `target`, or null if it can. The one place the blocker rule lives:
  * a move into a completed status that is not a cancellation is refused while the ticket has open
@@ -64,6 +68,5 @@ export async function completionRefusal(
 
   const keys = (await openBlockersOf(executor, input.organisationId, [ticket.id])).get(ticket.id);
   if (!keys || keys.length === 0) return null;
-  const verb = keys.length === 1 ? 'is' : 'are';
-  return `${ticket.key} can't be ${target.name.toLowerCase()} while ${listOf(keys)} ${verb} open.`;
+  return completionRefusalText(ticket.key, target.name, keys);
 }

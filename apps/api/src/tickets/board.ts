@@ -4,6 +4,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { conditionsFor, orderFor, searchTicketIds, type QueryActor } from './query';
 import { loadTicketSummaries } from './read';
+import { together } from '../together';
 
 /** How many tickets one column carries. The column's total says how many there really are. */
 export const COLUMN_LIMIT = 50;
@@ -40,8 +41,9 @@ export async function loadBoard(
   ];
   const order = orderFor(filters.sort, filters.dir, filters.sortField);
 
-  const columns = await Promise.all(
-    statuses.map(async (status) => {
+  const columns = await together(
+    executor,
+    statuses.map((status) => async () => {
       const { ids, total } = await searchTicketIds(executor, {
         where: [...shared, eq(tickets.statusId, status.id)],
         order,

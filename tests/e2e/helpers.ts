@@ -1,4 +1,5 @@
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { E2E_DATABASE_URL } from '../../playwright.config';
 
 /** Direct address of the e2e API, for calls that deliberately bypass the web app. */
 export const API_URL = 'http://127.0.0.1:4100';
@@ -21,8 +22,13 @@ const WORKSPACE_URL = /\/w\/[^/]+$/;
 
 /** Restores the seeded demo data. Goes straight to the API's dev reset route. */
 export async function reseed(request: APIRequestContext): Promise<void> {
-  const response = await request.post(`${API_URL}/api/dev/reset`);
-  expect(response.status()).toBe(204);
+  // Reset needs someone signed in, and names the database: a Forge on this port that uses any
+  // other database refuses, so a run that found the wrong server cannot wipe it.
+  const signIn = await request.post(`${API_URL}/api/dev/session`, { data: { key: 'owner' } });
+  expect(signIn.status()).toBe(200);
+  const database = new URL(E2E_DATABASE_URL).pathname.slice(1);
+  const response = await request.post(`${API_URL}/api/dev/reset`, { data: { database } });
+  expect(response.status(), await response.text()).toBe(204);
 }
 
 /** Signs in through the real login page. */

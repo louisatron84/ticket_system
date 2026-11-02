@@ -32,6 +32,15 @@ describe('loadConfig', () => {
     });
   });
 
+  it('believes no forwarded address unless TRUST_PROXY names the proxy', () => {
+    expect(loadConfig(validEnv).trustProxy).toBe(false);
+    expect(loadConfig({ ...validEnv, TRUST_PROXY: 'loopback' }).trustProxy).toEqual(['loopback']);
+    expect(loadConfig({ ...validEnv, TRUST_PROXY: '10.0.0.5, 192.168.0.0/16' }).trustProxy).toEqual(
+      ['10.0.0.5', '192.168.0.0/16'],
+    );
+    expect(() => loadConfig({ ...validEnv, TRUST_PROXY: 'everyone' })).toThrow(/TRUST_PROXY/);
+  });
+
   it('defaults the log level to silent under NODE_ENV=test', () => {
     expect(loadConfig({ ...validEnv, NODE_ENV: 'test' }).logLevel).toBe('silent');
   });

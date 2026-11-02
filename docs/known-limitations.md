@@ -176,20 +176,28 @@ assume it does not exist yet.
   short-lived access with rotating refresh tokens, keeping the token in the OS keychain, IP
   allow-lists per token, a tamper-evident audit log, a notice on use from a new address, and
   revoking a token automatically when the repository scanner finds it in code.
-- **Addresses come from the web proxy.** The API believes `X-Forwarded-For` only from a proxy on
-  loopback (the web app), so addresses and the sign-in limits are per real caller. A program on the
-  API's own machine that calls it directly can still claim any address, which buys it a fresh
-  per-address window for starting CLI sign-ins; at most 500 sign-ins can be waiting at once, so
-  such a caller can delay other people's `forge login` (until codes expire, 10 minutes) but not
-  grow anything without end. `forge login --token` still works meanwhile.
+- **Addresses are the connection's own** unless `TRUST_PROXY` names a reverse proxy. Through the
+  web app every caller has the web server's address, so the CLI sign-in limits (10 starts per 10
+  minutes) are shared by everyone using one web server, and the "started from another address"
+  warning cannot tell people on it apart. A production install needs a reverse proxy that writes
+  `X-Forwarded-For`, with `TRUST_PROXY` set; there is no production setup yet. `forge login
+--token` works whatever the limits say.
 - **Approving a CLI sign-in is the device flow**: whoever opens the link and approves gets the
   token in their name. A sign-in started from another address than the approver's is flagged on
   the page and needs an extra confirmation, but someone who is tricked into confirming still
   hands over a token (as with GitHub's device flow).
 - **Development sign-in and reset** answer only connections from this machine (the socket's own
   address, not a header) and never in production. Anyone on the machine can still become any seeded
-  person, which is the point of the switcher; reset is also off unless `FORGE_DEV_RESET=1` and never
-  runs on the `forge` database.
+  person, which is the point of the switcher, so the sign-in that reset now needs keeps out a stray
+  request, not a determined program on the machine (which also holds the database password). Reset
+  is off unless `FORGE_DEV_RESET=1`, never runs on the `forge` database, and wipes only the
+  database the caller names.
+- **Dates run from 2000 to 2099** (due, start, milestone and cycle dates), and a cycle runs at
+  most 365 days: charts walk them day by day. Dates saved earlier outside that are kept; the
+  burndown stops a year after a cycle starts and the timeline shows two years back to five ahead.
+- **npm reports 15 moderate advisories**, all in development tools (ESLint's `minimatch`,
+  `drizzle-kit`'s old `esbuild`), none in what the API or web app run. npm's only offered fix
+  downgrades both tools, so they wait for upstream releases.
 - **Duplicating a ticket** copies its text but not its attachments, so images in the copy's
   description show as missing.
 - **Signing in again on the approval page** returns to the workspace, not to the approval page;

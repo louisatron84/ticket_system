@@ -22,6 +22,7 @@ import { writeComment } from './comment-write';
 import { clearMentions, syncMentions } from './content';
 import { AppError } from '../errors';
 import { archivedTicketError, refuseIfProjectArchived, type TicketContext } from './service';
+import { together } from '../together';
 
 const notFound = () => new AppError('not_found', 'Not found.', 404);
 
@@ -259,37 +260,39 @@ export async function loadTimeline(
 ): Promise<TimelineItem[]> {
   const ticketId = await ticketIdOf(executor, organisationId, ticketKey);
 
-  const [commentRows, eventRows] = await Promise.all([
-    executor
-      .select(commentColumns)
-      .from(ticketComments)
-      .innerJoin(users, eq(users.id, ticketComments.authorId))
-      .where(
-        and(
-          eq(ticketComments.organisationId, organisationId),
-          eq(ticketComments.ticketId, ticketId),
-        ),
-      )
-      .orderBy(asc(ticketComments.createdAt), asc(ticketComments.id)),
-    executor
-      .select({
-        id: ticketEvents.id,
-        type: ticketEvents.type,
-        data: ticketEvents.data,
-        createdAt: ticketEvents.createdAt,
-        actorId: users.id,
-        actorName: users.displayName,
-      })
-      .from(ticketEvents)
-      .leftJoin(users, eq(users.id, ticketEvents.actorUserId))
-      .where(
-        and(
-          eq(ticketEvents.organisationId, organisationId),
-          eq(ticketEvents.ticketId, ticketId),
-          notInArray(ticketEvents.type, SHOWN_AS_COMMENTS),
-        ),
-      )
-      .orderBy(asc(ticketEvents.createdAt), asc(ticketEvents.id)),
+  const [commentRows, eventRows] = await together(executor, [
+    () =>
+      executor
+        .select(commentColumns)
+        .from(ticketComments)
+        .innerJoin(users, eq(users.id, ticketComments.authorId))
+        .where(
+          and(
+            eq(ticketComments.organisationId, organisationId),
+            eq(ticketComments.ticketId, ticketId),
+          ),
+        )
+        .orderBy(asc(ticketComments.createdAt), asc(ticketComments.id)),
+    () =>
+      executor
+        .select({
+          id: ticketEvents.id,
+          type: ticketEvents.type,
+          data: ticketEvents.data,
+          createdAt: ticketEvents.createdAt,
+          actorId: users.id,
+          actorName: users.displayName,
+        })
+        .from(ticketEvents)
+        .leftJoin(users, eq(users.id, ticketEvents.actorUserId))
+        .where(
+          and(
+            eq(ticketEvents.organisationId, organisationId),
+            eq(ticketEvents.ticketId, ticketId),
+            notInArray(ticketEvents.type, SHOWN_AS_COMMENTS),
+          ),
+        )
+        .orderBy(asc(ticketEvents.createdAt), asc(ticketEvents.id)),
   ]);
 
   const reactions = await reactionsFor(

@@ -20,6 +20,7 @@ import {
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { NOTIFY_CHANNEL } from './hub';
+import { together } from '../together';
 
 export type NotificationDraft = {
   recipientId: string;
@@ -63,12 +64,13 @@ export async function notify(
   if (best.size === 0) return;
 
   const recipientIds = [...new Set([...best.values()].map((draft) => draft.recipientId))];
-  const [members, prefs] = await Promise.all([
-    viewersAmong(tx, input.organisationId, recipientIds),
-    tx
-      .select({ userId: userPreferences.userId, data: userPreferences.data })
-      .from(userPreferences)
-      .where(inArray(userPreferences.userId, recipientIds)),
+  const [members, prefs] = await together(tx, [
+    () => viewersAmong(tx, input.organisationId, recipientIds),
+    () =>
+      tx
+        .select({ userId: userPreferences.userId, data: userPreferences.data })
+        .from(userPreferences)
+        .where(inArray(userPreferences.userId, recipientIds)),
   ]);
   const memberIds = new Set(members);
   const prefsOf = new Map(

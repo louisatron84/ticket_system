@@ -40,6 +40,37 @@ function openBrowser(url: string) {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+/** The same host, counting every name for this machine as one. */
+const sameHost = (a: string, b: string) => a === b || (LOOPBACK.has(a) && LOOPBACK.has(b));
+
+/**
+ * What the server sent, checked before it is shown or opened: a server that is not Forge (or has
+ * been tampered with) must not get a terminal to print control codes, or a browser to open a
+ * file, a program or another site. The approval page is http(s) on the server's own host.
+ */
+export function checkStarted(server: string, started: Started): Started {
+  const fail = () => {
+    throw new Error(`${server} sent an answer Forge would not send. Nothing was opened.`);
+  };
+  if (!/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(started.userCode)) fail();
+  let url: URL;
+  try {
+    url = new URL(started.verificationUrl);
+  } catch {
+    return fail();
+  }
+  if (
+    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+    url.username !== '' ||
+    url.password !== '' ||
+    !sameHost(url.hostname, new URL(server).hostname)
+  ) {
+    fail();
+  }
+  return { ...started, verificationUrl: url.href };
+}
+
 /**
  * Signs in by approval in the browser: the server gives a short code, the person checks it on the
  * approval page and allows it, and the token comes back here. Only the secret device code is sent
@@ -49,10 +80,13 @@ export async function browserLogin(
   server: string,
   options: { openBrowser: boolean; say: (line: string) => void },
 ): Promise<string> {
-  const started = await call<Started>(server, '/api/v1/cli/login', {
-    method: 'POST',
-    json: { machine: hostname().slice(0, 100) },
-  });
+  const started = checkStarted(
+    server,
+    await call<Started>(server, '/api/v1/cli/login', {
+      method: 'POST',
+      json: { machine: hostname().slice(0, 100) },
+    }),
+  );
   options.say(`Your code: ${started.userCode}`);
   options.say(`Approve it at ${started.verificationUrl}`);
   options.say('Check the code on that page matches before you click Allow.');

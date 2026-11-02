@@ -193,14 +193,22 @@ const commentText = z
   .max(10_000)
   .refine((value) => !hasControlExceptWhitespace(value), 'Must not contain control characters.');
 
-/** A day on the calendar, YYYY-MM-DD, that exists. */
+/** The years a date may be in. Charts walk day by day, so year 1 to 9999 must never reach them. */
+export const FIRST_YEAR = 2000;
+export const LAST_YEAR = 2099;
+
+/** A day on the calendar, YYYY-MM-DD, that exists, between 2000 and 2099. */
 export const calendarDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the form YYYY-MM-DD.')
   .refine((value) => {
     const date = new Date(`${value}T00:00:00Z`);
     return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-  }, 'That date does not exist.');
+  }, 'That date does not exist.')
+  .refine((value) => {
+    const year = Number(value.slice(0, 4));
+    return year >= FIRST_YEAR && year <= LAST_YEAR;
+  }, `Use a date between ${FIRST_YEAR} and ${LAST_YEAR}.`);
 
 export const createProjectBodySchema = z.strictObject({
   key: z
@@ -706,9 +714,11 @@ export const ticketDetailSchema = ticketSummarySchema.extend({
   archivedAt: z.string().nullable(),
   /** The active statuses it can move to, each with what the move needs. */
   allowedTransitions: z.array(
-    statusSchema
-      .pick({ id: true, key: true, name: true, category: true })
-      .extend({ rules: z.array(z.enum(TRANSITION_RULES)) }),
+    statusSchema.pick({ id: true, key: true, name: true, category: true }).extend({
+      rules: z.array(z.enum(TRANSITION_RULES)),
+      /** Why this move would be refused right now (a needed comment aside), or null. */
+      refusal: z.string().nullable(),
+    }),
   ),
   /** From the top-level ticket down to this one's parent. */
   ancestors: z.array(ticketRefSchema),
