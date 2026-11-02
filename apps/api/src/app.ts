@@ -72,9 +72,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         : {}),
     },
     bodyLimit: BODY_LIMIT_BYTES,
-    // The web app proxies the browser (and the forge command) from this machine, and says who the
-    // real caller is in X-Forwarded-For. Only a proxy on loopback is believed.
-    trustProxy: 'loopback',
+    // X-Forwarded-For is believed only from a reverse proxy named in TRUST_PROXY. The web app's own
+    // proxy passes on whatever header the caller sent (and adds none), so by default the address is
+    // the connection's own and cannot be claimed.
+    trustProxy: config.trustProxy,
     // Never trust the client's header directly; genReqId validates it.
     requestIdHeader: false,
     genReqId: (request) => resolveRequestId(request.headers[REQUEST_ID_HEADER]),

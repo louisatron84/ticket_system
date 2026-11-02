@@ -22,7 +22,8 @@ type Detail = Summary & {
   goal: string;
   description: string;
   criteriaItems: { text: string; done: boolean }[];
-  allowedTransitions: Ref[];
+  /** `refusal`: why the move would be refused now; missing from a server older than this. */
+  allowedTransitions: (Ref & { rules?: string[]; refusal?: string | null })[];
   dueDate: string | null;
   archivedAt: string | null;
   /** Custom fields that apply to the ticket; missing from a server older than P4. */
@@ -105,8 +106,20 @@ export function formatCatalogue(list: { items: Summary[]; total: number }): stri
   return lines;
 }
 
+/** A move as a command: its word when it has one, or `forge move` with the status name. */
+function moveCommand(key: string, status: Ref): string {
+  const word = WORD_FOR_KEY.get(status.key);
+  if (word) return `forge ${word} ${key}`;
+  return `forge move ${key} ${/^[\w-]+$/.test(status.name) ? status.name : `"${status.name}"`}`;
+}
+
 /** One ticket as readable text: the parts a reviewer needs, then what can be done next. */
-export function formatTicket(t: Detail, server: string, slug: string): string[] {
+export function formatTicket(
+  t: Detail,
+  server: string,
+  slug: string,
+  options: { readOnly?: boolean } = {},
+): string[] {
   const lines = [`${t.key}  ${t.title}`];
   lines.push(
     `${t.type.name} in ${t.project.name} · ${t.status.name} · ${t.priority.name} · ${t.assignee?.displayName ?? 'unassigned'}` +
@@ -129,13 +142,20 @@ export function formatTicket(t: Detail, server: string, slug: string): string[] 
     }
   }
   if (t.description) lines.push('', 'Description', `  ${t.description.replace(/\n/g, '\n  ')}`);
-  const moves = t.allowedTransitions
-    .map((status) => {
-      const word = WORD_FOR_KEY.get(status.key);
-      return word ? `forge ${word} ${t.key} (${status.name})` : null;
-    })
-    .filter((move): move is string => move !== null);
-  if (moves.length > 0) lines.push('', 'Next moves', ...moves.map((move) => `  ${move}`));
+  // Only moves that would go through are offered; the rest say why not, so nothing listed fails.
+  if (options.readOnly) {
+    lines.push('', 'Next moves', '  None with this token: it is read only.');
+  } else if (t.allowedTransitions.length > 0) {
+    lines.push('', 'Next moves');
+    for (const status of t.allowedTransitions) {
+      if (status.refusal) {
+        lines.push(`  ${status.name}: not now. ${status.refusal}`);
+        continue;
+      }
+      const needsComment = status.rules?.includes('needs_comment') ? ' -m "why"' : '';
+      lines.push(`  ${moveCommand(t.key, status)}${needsComment} (${status.name})`);
+    }
+  }
   lines.push('', `${server}/w/${slug}/tickets/${t.key}`);
   return lines;
 }

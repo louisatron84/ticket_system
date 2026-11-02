@@ -17,6 +17,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     webOrigins: ['http://localhost:3000', 'http://127.0.0.1:3000'],
     sessionTtlHours: 168,
     attachmentsDir: path.join(tmpdir(), 'forge-test-attachments'),
+    trustProxy: false,
     ...overrides,
   };
 }

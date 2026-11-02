@@ -65,8 +65,9 @@ export async function moveTicket(
           : `${ticket.project.key} has no status "${target.status}". Its statuses: ${names}.`,
     };
   }
+  // Nothing to do is not success: a script that asked for a move must be able to tell.
   if (ticket.status.id === status.id) {
-    return { ok: true, message: `${ticket.key} is already in ${status.name}.` };
+    return { ok: false, message: `${ticket.key} is already in ${status.name}. Nothing changed.` };
   }
   await call(config.server, `${api}/tickets/${key}`, {
     method: 'PATCH',

@@ -27,12 +27,15 @@ export function DevSwitcher({
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   // Reset wipes the whole database, so it exists only when the API was started with it switched on.
-  const [canReset, setCanReset] = useState(false);
+  // It says which database it would wipe, and the reset names it back.
+  const [database, setDatabase] = useState<string | null>(null);
   useEffect(() => {
     let current = true;
     fetch('/api/dev/reset', { credentials: 'same-origin' })
-      .then((response) => {
-        if (current) setCanReset(response.status === 204);
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body = (await response.json()) as { database?: unknown };
+        if (current && typeof body.database === 'string') setDatabase(body.database);
       })
       .catch(() => {});
     return () => {
@@ -54,7 +57,7 @@ export function DevSwitcher({
   async function reset() {
     setResetting(true);
     try {
-      await apiFetch('/api/dev/reset', { method: 'POST' });
+      await apiFetch('/api/dev/reset', { method: 'POST', json: { database } });
       window.location.assign('/login');
     } catch (error) {
       toast.error(messageOf(error));
@@ -102,7 +105,7 @@ export function DevSwitcher({
           );
         })}
       </ul>
-      {canReset && (
+      {database && (
         <button
           type="button"
           onClick={() => setConfirmingReset(true)}
@@ -120,7 +123,7 @@ export function DevSwitcher({
         onConfirm={reset}
         onCancel={() => setConfirmingReset(false)}
       >
-        This deletes every record in the development database and recreates the seven test accounts.
+        This deletes every record in the database {database} and recreates the seven test accounts.
         You will be signed out. It cannot be undone.
       </ConfirmDialog>
     </section>

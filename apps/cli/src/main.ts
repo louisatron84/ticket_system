@@ -44,7 +44,7 @@ Moving
   forge --version          the version
 
 Keys are not case-sensitive: forge warm web-1 works.
-Exit codes: 0 done, 1 refused or failed, 2 the command was wrong.`;
+Exit codes: 0 done, 1 refused, failed or nothing changed, 2 the command was wrong.`;
 
 /** Exit codes: 0 done, 1 refused or failed, 2 the command itself was wrong. */
 const OK = 0;
@@ -219,7 +219,11 @@ async function inspect(args: string[], io: Io): Promise<number> {
   if (parsed.flags.has('--json')) io.out(JSON.stringify(ticket, null, 2));
   else {
     const web = config.webUrl ?? config.server;
-    for (const line of formatTicket(ticket, web, config.workspace.slug)) io.out(line);
+    for (const line of formatTicket(ticket, web, config.workspace.slug, {
+      readOnly: config.scope === 'read',
+    })) {
+      io.out(line);
+    }
   }
   return OK;
 }

@@ -11,6 +11,9 @@ export class ServerError extends Error {
 
 type ErrorBody = { error?: { code?: string; message?: string; details?: { message: string }[] } };
 
+/** How long one request may take before the command gives up, rather than hang. */
+export const REQUEST_TIMEOUT_MS = 30_000;
+
 /** Calls the Forge API. A token, when given, goes only in the Authorization header. */
 export async function call<T>(
   server: string,
@@ -28,8 +31,15 @@ export async function call<T>(
       headers,
       ...(options.json !== undefined ? { body: JSON.stringify(options.json) } : {}),
       redirect: 'error',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      throw new ServerError(
+        0,
+        `${server} did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds. Is Forge running there?`,
+      );
+    }
     throw new ServerError(0, `Could not reach ${server}. Is Forge running there?`);
   }
 

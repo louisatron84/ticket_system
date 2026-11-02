@@ -392,9 +392,9 @@ export async function removeLink(
       link.sourceKey,
       link.targetKey,
     ]);
-    // Taking a link away changes both tickets: neither may be in an archived project.
-    assertProjectOpen(locked.get(link.sourceKey)!);
-    assertProjectOpen(locked.get(link.targetKey)!);
+    // The ticket being edited must be in an open project. The other one may sit in an archived
+    // project: otherwise a blocker archived with its project would block this ticket for good.
+    assertProjectOpen(locked.get(ticketKey)!);
     await tx.delete(ticketLinks).where(eq(ticketLinks.id, link.id));
     await recordLink(
       tx,

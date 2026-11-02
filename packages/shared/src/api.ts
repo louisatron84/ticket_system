@@ -90,3 +90,7 @@ export type DevIdentity = z.infer<typeof devIdentitySchema>;
 
 export const devSessionBodySchema = z.strictObject({ key: z.string().min(1).max(64) });
 export type DevSessionBody = z.infer<typeof devSessionBodySchema>;
+
+/** Resetting names the database it means to wipe; a server on another one refuses. */
+export const devResetBodySchema = z.strictObject({ database: z.string().min(1).max(63) });
+export type DevResetBody = z.infer<typeof devResetBodySchema>;

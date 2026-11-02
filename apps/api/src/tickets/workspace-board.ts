@@ -10,6 +10,7 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import { COLUMN_LIMIT } from './board';
 import { conditionsFor, orderFor, searchTicketIds, type QueryActor } from './query';
 import { loadTicketSummaries } from './read';
+import { together } from '../together';
 
 type StatusRow = typeof projectStatuses.$inferSelect;
 

@@ -19,6 +19,12 @@ export type AppConfig = {
   sessionTtlHours: number;
   /** The folder attachment files are stored in. */
   attachmentsDir: string;
+  /**
+   * The proxies whose X-Forwarded-For is believed ('loopback' or addresses and ranges), or false.
+   * Only for a reverse proxy that writes the header itself: the web app's own proxy passes on
+   * whatever the caller sent, so believing it would let anyone claim any address.
+   */
+  trustProxy: false | string[];
 };
 
 /** Thrown for invalid environment variables. The message names variables, never their values. */
@@ -70,6 +76,13 @@ const envSchema = z.object({
     .refine((origins) => origins.length > 0 && origins.every(isOrigin)),
   SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(168),
   ATTACHMENTS_DIR: z.string().min(1).default('data/attachments'),
+  TRUST_PROXY: z
+    .string()
+    .transform((value) => value.split(',').map((entry) => entry.trim()))
+    .refine((entries) =>
+      entries.every((entry) => entry === 'loopback' || /^[0-9a-fA-F.:]+(\/\d{1,3})?$/.test(entry)),
+    )
+    .optional(),
 });
 
 // Fixed text per variable: zod's own messages can include the offending value.
@@ -85,6 +98,7 @@ const PROBLEMS: Record<string, string> = {
   WEB_ORIGIN: 'must be a comma-separated list of http(s) origins without paths',
   SESSION_TTL_HOURS: 'must be an integer between 1 and 720',
   ATTACHMENTS_DIR: 'must be a folder path',
+  TRUST_PROXY: 'must be loopback or a comma-separated list of addresses and ranges',
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
@@ -134,5 +148,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     webOrigins: values.WEB_ORIGIN,
     sessionTtlHours: values.SESSION_TTL_HOURS,
     attachmentsDir: values.ATTACHMENTS_DIR,
+    trustProxy: values.TRUST_PROXY ?? false,
   };
 }

@@ -200,7 +200,11 @@ export const calendarDate = z
   .refine((value) => {
     const date = new Date(`${value}T00:00:00Z`);
     return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-  }, 'That date does not exist.');
+  }, 'That date does not exist.')
+  .refine((value) => {
+    const year = Number(value.slice(0, 4));
+    return year >= FIRST_YEAR && year <= LAST_YEAR;
+  }, `Use a date between ${FIRST_YEAR} and ${LAST_YEAR}.`);
 
 export const createProjectBodySchema = z.strictObject({
   key: z

@@ -6,7 +6,8 @@
 //   node scripts/dev-db.mjs stop    stop a database running elsewhere (e.g. in the background)
 //   node scripts/dev-db.mjs reset   delete the data directory (only while stopped)
 //
-// Connection details match .env.example: forge/forge on localhost:54329.
+// Connection details match .env.example: forge/forge on localhost:54329 (FORGE_DB_PORT changes
+// the port; DATABASE_URL and the other URLs in .env must then say the same).
 import EmbeddedPostgres from 'embedded-postgres';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -19,7 +20,11 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-const PORT = 54329;
+const PORT = Number(process.env.FORGE_DB_PORT ?? 54329);
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+  console.error('[dev-db] FORGE_DB_PORT must be a port number.');
+  process.exit(1);
+}
 const USER = 'forge';
 const PASSWORD = 'forge';
 const DATABASES = ['forge', 'forge_test', 'forge_e2e'];

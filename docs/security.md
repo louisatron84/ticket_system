@@ -43,7 +43,9 @@ industry standard (the owner's choice; stronger measures are listed in
 - A token only ever does **ticket work** (`tickets.view`, `tickets.create`, `tickets.edit`,
   `tickets.assign`, `tickets.comment`). Renaming the workspace, managing members, roles or
   projects, and reading the member list are refused with `403` even for an owner's token, and
-  permission checks inside handlers see only those five.
+  permission checks inside handlers see only those five. Planning is web work too: a token cannot
+  create, change or delete cycles or milestones, create workspace labels, or re-rank the backlog
+  (it can still put a ticket in a cycle or milestone, which is an edit of the ticket).
 - The owner's membership and role are checked on **every** request: a token is never worth more
   than its owner's role is now.
 - A request carrying both a session cookie and a bearer token is refused (`401`).
@@ -58,13 +60,23 @@ industry standard (the owner's choice; stronger measures are listed in
   flagged on the page and Allow needs an extra "I started this myself" (enforced by the API), since
   that is what a phished link looks like. A role that can only read always gets a read-only token,
   whatever was asked. Saved views cannot be changed with a token. Starting a login is limited to
-  10 per address per 10 minutes (and 500 waiting in all),
+  10 per address per 10 minutes (and 500 waiting in all; see **Addresses** below),
   polling to 60 a minute (and `slow_down` if faster than every 3 seconds), and code lookups and
   decisions to 5 a minute per person.
 - **On the machine**: the config (`~/.forge/config.json`, or `FORGE_CONFIG_DIR`) is written
   owner-only (mode `0600`; on Windows the inherited permissions are removed and only the current
   user is granted access). The command refuses plain `http://` to anything but `localhost` and
-  `127.0.0.1`, does not follow redirects, and reads a pasted token without echoing it.
+  `127.0.0.1`, does not follow redirects, gives up on a request after 30 seconds, and reads a
+  pasted token without echoing it. What a server sends at sign-in is checked before use: the code
+  must look like a code and the approval link must be an `http(s)` page on the server's own host,
+  or nothing is printed or opened (so a fake server cannot open a file, a program or another site).
+- **Addresses**: the API takes a caller's address from the connection. It believes
+  `X-Forwarded-For` only from proxies named in `TRUST_PROXY`, for a reverse proxy that writes the
+  header itself. The web app's own proxy does not: it passes on whatever header the caller sent and
+  adds none (checked against Next.js 16.4), so believing it let anyone claim any address and a
+  fresh sign-in allowance with it. Through the web app every caller has the web server's address,
+  so the sign-in limits are shared by everyone using that server; in production put a reverse
+  proxy in front and set `TRUST_PROXY`.
 
 ## Notifications and triage
 
@@ -225,7 +237,7 @@ Other rules the API enforces, each with a test that does not go through the page
 ## Development sign-in
 
 See [development accounts](development-accounts.md#why-it-cannot-reach-production). In short: it
-it cannot start in production, the routes do not exist unless enabled, it accepts only seeded
+cannot start in production, the routes do not exist unless enabled, it accepts only seeded
 identity keys, it refuses foreign `Host` / `Origin` values, and it answers only connections whose
 socket comes from this machine (so an API bound to a network address does not hand sessions to
 anyone who sends `Host: localhost`).
@@ -234,7 +246,10 @@ It is open to any program on the same machine: that is what makes it a developme
 real sign-in must replace it before Forge is reachable by anyone else. The most destructive part,
 **Reset demo data** (wipe every table and reseed, signing everyone out), is a separate switch,
 `FORGE_DEV_RESET`, off by default; its route does not exist without it, the button only appears
-with it, and it always refuses the main `forge` database. `npm run db:reseed` remains the
+with it, and it always refuses the main `forge` database. It also needs someone signed in, and the
+caller must name the database it means to wipe: a server using any other database answers `409`
+and wipes nothing. The browser tests name `forge_e2e`, so a test run that finds some other copy of
+Forge on its port cannot wipe that copy. `npm run db:reseed` remains the
 deliberate way to start again.
 
 ## Audit trail

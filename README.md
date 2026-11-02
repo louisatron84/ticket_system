@@ -91,7 +91,9 @@ forge whoami
 forge logout                # also revokes the token on the server
 ```
 
-Moves follow the ticket's workflow and the blocker rule exactly as the board does. Tokens are
+Moves follow the ticket's workflow and the blocker rule exactly as the board does. `inspect` lists
+only the moves that would go through now and says why the others would not; a move to where the
+ticket already is exits 1 ("Nothing changed"), as does a refusal. Tokens are
 managed under the account menu, **CLI tokens**; see [security](docs/security.md#command-line-tokens).
 
 ## Repository map

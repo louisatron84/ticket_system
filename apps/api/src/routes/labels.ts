@@ -2,7 +2,7 @@ import { labels, type Db } from '@forge/db';
 import { createLabelBodySchema, type Label } from '@forge/shared';
 import type { FastifyInstance } from 'fastify';
 import { recordAudit } from '../audit';
-import { orgAccess } from '../auth/guards';
+import { orgAccess, refuseTokens } from '../auth/guards';
 import { isUniqueViolation } from '../db-errors';
 import { AppError } from '../errors';
 import { parseBody } from '../validation';
@@ -12,7 +12,7 @@ export function registerLabelRoutes(app: FastifyInstance, deps: { db: Db }): voi
 
   app.post(
     '/api/v1/orgs/:orgId/labels',
-    { preHandler: orgAccess(db, 'tickets.edit') },
+    { preHandler: [refuseTokens, orgAccess(db, 'tickets.edit')] },
     async (request, reply): Promise<Label> => {
       const body = parseBody(createLabelBodySchema, request.body);
       const org = request.org!;
